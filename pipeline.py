@@ -121,7 +121,7 @@ def cmd_review(args) -> int:
             port=args.port,
             open_browser=not args.no_browser,
             host=args.host,
-            require_auth=args.require_auth,
+            require_auth=args.require_auth or args.users,
             secure_cookie=args.secure_cookie,
         )
     finally:
@@ -437,6 +437,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument(
         "--require-auth", action="store_true",
         help="require sign-in (mandatory before exposing this to a network)",
+    )
+    s.add_argument(
+        "--users", action="store_true",
+        help="plain-language alias for --require-auth: each person gets their own "
+             "sign-in. The first account is created in the browser.",
     )
     s.add_argument(
         "--secure-cookie", action="store_true",

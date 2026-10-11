@@ -59,28 +59,48 @@ One command, synthetic documents, sign-in off:
 python pipeline.py review --demo
 ```
 
-Or hand them a link — see [DEPLOY.md](DEPLOY.md) for GitHub Codespaces, Docker,
-and a five-minute demo script.
+Or hand them a link — see [SETUP.md](SETUP.md) for a plain-language walkthrough,
+GitHub Codespaces, Docker, and a five-minute demo script.
 
 > **Demo mode is synthetic data only.** Anyone with the URL can reach it. Never
 > upload client material to a demo instance.
 
+## Quick start — Windows, no command line
+
+Double-click one of these:
+
+| File | What it does |
+|---|---|
+| **`start-windows.bat`** | Runs it for real. Each person gets their own sign-in. |
+| **`demo-windows.bat`** | Sample documents, no sign-in, for showing a client. |
+
+The first run opens a **Welcome** page in your browser where you create your own
+account. **That first account is the administrator**, and you add colleagues from
+the **Team** tab inside the app — no command line needed.
+
+On macOS or Linux, run `./start-mac-linux.command`.
+
 ## Quick start — shared by a team
 
 ```bash
-# 1. create an account for each person (prompts for the password)
-python pipeline.py create-user --username jane --name "Jane Smith" --role admin
-python pipeline.py create-user --username raj  --name "Raj Patel"
-
-# 2. serve it to the team, with sign-in required
-python pipeline.py review --host 0.0.0.0 --require-auth --secure-cookie
+python pipeline.py review --users          # each person gets their own sign-in
 ```
 
-Colleagues open `http://<this-machine-ip>:8765/` and sign in.
+Open <http://127.0.0.1:8765/> and create your account on the Welcome page.
+
+From then on, the **Team** tab lets an administrator add colleagues, reset a
+forgotten password, and disable someone who has left — all in the browser.
+
+Command-line equivalents still exist if you prefer them:
+
+```bash
+python pipeline.py create-user --username jane --name "Jane Smith" --role admin
+python pipeline.py users --reset-password jane
+```
 
 **Collections are shared.** Everyone sees every collection, so a colleague can
 pick up work. Each collection records who started it and who last exported it,
-and the Team tab shows a live activity feed.
+and the Team tab shows a live activity feed and the record of who did what.
 
 ### Shared pool vs. sign-in — the distinction that matters
 

@@ -56,6 +56,9 @@ jobs:
       - name: OCR tests
         run: python ocr_test.py
 
+      - name: Account management tests
+        run: python users_test.py
+
       - name: Console tests
         run: python smoke_test.py
 

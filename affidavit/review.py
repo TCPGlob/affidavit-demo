@@ -26,6 +26,21 @@ from .config import Config
 
 CONSOLE_HTML = Path(__file__).resolve().parent / "console.html"
 LOGIN_HTML = Path(__file__).resolve().parent / "login.html"
+SETUP_HTML = Path(__file__).resolve().parent / "setup.html"
+
+
+def _template(path: Path, fallback: bytes, error: str = "",
+              marker: str = "__ERROR__") -> bytes:
+    try:
+        html = path.read_text(encoding="utf-8")
+    except OSError:
+        return fallback
+    box = f'<div class="err">{error}</div>' if error else ""
+    return html.replace(marker, box).encode("utf-8")
+
+
+def _error_box(message: str) -> str:
+    return f'<div class="err">{message}</div>'
 
 
 def _console_page() -> bytes:
@@ -108,16 +123,24 @@ def _cookie_token(header: str | None) -> str | None:
 
 
 def _login_page(error: str = "") -> bytes:
-    try:
-        html = LOGIN_HTML.read_text(encoding="utf-8")
-    except OSError:
-        html = ("<!DOCTYPE html><html><body style='font-family:sans-serif;padding:40px'>"
+    fallback = ("<!DOCTYPE html><html><body style='font-family:sans-serif;padding:40px'>"
                 "<h2>Sign in</h2><form method='POST' action='/login'>"
                 "<p><input name='username' placeholder='username'></p>"
                 "<p><input name='password' type='password' placeholder='password'></p>"
-                "<button>Sign in</button></form>__ERROR__</body></html>")
-    marker = f'<div class="err">{error}</div>' if error else ""
-    return html.replace("__ERROR__", marker).encode("utf-8")
+                "<button>Sign in</button></form>__ERROR__</body></html>").encode()
+    return _template(LOGIN_HTML, fallback, error)
+
+
+def _setup_page(error: str = "") -> bytes:
+    fallback = ("<!DOCTYPE html><html><body style='font-family:sans-serif;padding:40px'>"
+                "<h2>Set up the first account</h2>"
+                "<form method='POST' action='/setup'>"
+                "<p><input name='display_name' placeholder='Your name'></p>"
+                "<p><input name='username' placeholder='username'></p>"
+                "<p><input name='password' type='password' placeholder='password'></p>"
+                "<p><input name='confirm' type='password' placeholder='confirm password'></p>"
+                "<button>Create account</button></form>__ERROR__</body></html>").encode()
+    return _template(SETUP_HTML, fallback, error)
 
 
 def _make_handler(conn, cfg: Config, require_auth: bool = False,
@@ -215,6 +238,14 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
             """
             if not ctx.require_auth:
                 return None
+            if auth.user_count(c) == 0:
+                # Nothing is set up yet; send them to the first-run page rather
+                # than a login form with no accounts behind it.
+                if self.command == "GET":
+                    self._redirect("/setup")
+                else:
+                    self._json({"error": "not set up yet", "setup": True}, 401)
+                return None
             user = self._current_user(c)
             if user is not None:
                 return user
@@ -238,7 +269,20 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
                             if not ctx.require_auth:
                                 self._redirect("/")
                                 return
+                            if auth.user_count(c) == 0:
+                                self._redirect("/setup")
+                                return
                             self._send(200, _login_page(), "text/html; charset=utf-8")
+                            return
+                        if path == "/setup":
+                            if not ctx.require_auth:
+                                self._redirect("/")
+                                return
+                            if auth.user_count(c) > 0:
+                                # Setup is a one-time door; close it for good.
+                                self._redirect("/login")
+                                return
+                            self._send(200, _setup_page(), "text/html; charset=utf-8")
                             return
                         if path == "/logout":
                             auth.logout(c, _cookie_token(self.headers.get("Cookie")))
@@ -271,6 +315,8 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
                                 self._json({"entries": auth.recent_audit(c)})
                         elif path == "/api/team":
                             self._handle_team(c, user)
+                        elif path == "/api/users":
+                            self._handle_users_list(c, user)
                         elif path == "/api/ocr":
                             self._json(self._ocr_summary(c))
                         elif path == "/api/collections":
@@ -306,6 +352,9 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
                         if path == "/login":
                             self._handle_login(c, raw)
                             return
+                        if path == "/setup":
+                            self._handle_setup(c, raw)
+                            return
 
                         user = self._require_user(c)
                         if self._blocked(user):
@@ -323,6 +372,12 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
                             self._handle_export(c, actor, raw)
                         elif path == "/api/ocr":
                             self._handle_ocr_run(c, actor, raw)
+                        elif path == "/api/users/create":
+                            self._handle_user_create(c, actor, raw)
+                        elif path == "/api/users/update":
+                            self._handle_user_update(c, actor, raw)
+                        elif path == "/api/users/password":
+                            self._handle_change_password(c, actor, raw)
                         else:
                             self._send(404, b"not found", "text/plain")
             except Exception as exc:  # noqa: BLE001
@@ -411,6 +466,167 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
             self._json({"ok": True, "stats": stats,
                         "ocr": self._ocr_summary(c),
                         "documents": fetch_documents(c)})
+
+        def _handle_setup(self, c, raw: bytes) -> None:
+            """Create the very first account, from the browser.
+
+            Only possible while the instance has no users at all, so this cannot
+            be used to add accounts later.
+            """
+            from urllib.parse import parse_qs
+
+            if auth.user_count(c) > 0:
+                self._redirect("/login")
+                return
+
+            form = parse_qs(raw.decode("utf-8", "replace"))
+            username = (form.get("username") or [""])[0].strip().lower()
+            display = (form.get("display_name") or [""])[0].strip()
+            password = (form.get("password") or [""])[0]
+            confirm = (form.get("confirm") or [""])[0]
+
+            def fail(message: str) -> None:
+                self._send(400, _setup_page(message), "text/html; charset=utf-8")
+
+            if not username or not display:
+                return fail("Please fill in both your name and a username.")
+            if password != confirm:
+                return fail("The two passwords do not match.")
+            if len(password) < 10:
+                return fail("The password must be at least 10 characters.")
+            try:
+                auth.create_user(c, username, display, password, "admin")
+            except ValueError as exc:
+                return fail(str(exc))
+
+            auth.audit(c, username, None, "account_created", "first account (administrator)")
+            token, user = auth.login(c, username, password,
+                                     self.headers.get("User-Agent", ""))
+            if user is None:
+                return fail("Account created, but sign-in failed. Try signing in.")
+            self._redirect("/", self._cookie_header(token, auth.SESSION_HOURS * 3600))
+
+        def _require_admin(self, c, user) -> bool:
+            """Guard for account management. Sends its own error response."""
+            # Check the server's mode, not just the user object: with sign-in
+            # off the stand-in identity carries the admin role, so relying on
+            # the role alone would let accounts be created on an instance where
+            # nobody signs in and every action is attributed to "local".
+            if not ctx.require_auth:
+                self._json({"error": "Sign-in is switched off, so account "
+                                     "management is unavailable. Start the app "
+                                     "with --users (or start-windows.bat) to give "
+                                     "each person their own sign-in.",
+                            "auth_disabled": True}, 400)
+                return False
+            if user is None:
+                self._json({"error": "Not signed in."}, 401)
+                return False
+            if not user.is_admin:
+                self._json({"error": "Only an administrator can manage accounts."}, 403)
+                return False
+            return True
+
+        def _handle_users_list(self, c, user) -> None:
+            if not self._require_admin(c, user):
+                return
+            self._json({"users": auth.list_users(c),
+                        "me": {"username": user.username, "role": user.role}})
+
+        def _handle_user_create(self, c, user, raw: bytes) -> None:
+            # _require_admin sends its own response; we must stop here or the
+            # account would be created despite the refusal.
+            if not self._require_admin(c, user):
+                return
+            payload = self._read_json(raw)
+            if payload is None:
+                self._json({"error": "bad json"}, 400)
+                return
+
+            username = (payload.get("username") or "").strip()
+            role = (payload.get("role") or "reviewer").strip().lower()
+            if role not in auth.ROLES:
+                self._json({"error": f"Unknown role '{role}'."}, 400)
+                return
+            if not username:
+                self._json({"error": "A username is required."}, 400)
+                return
+
+            try:
+                auth.create_user(
+                    c, username, payload.get("display_name", ""),
+                    payload.get("password", ""), role,
+                )
+            except ValueError as exc:
+                self._json({"error": str(exc)}, 400)
+                return
+            auth.audit(c, user.username, None, "account_created", username)
+            self._json({"ok": True, "users": auth.list_users(c)})
+
+        def _handle_user_update(self, c, user, raw: bytes) -> None:
+            if not self._require_admin(c, user):
+                return
+            payload = self._read_json(raw)
+            if payload is None:
+                self._json({"error": "bad json"}, 400)
+                return
+            target = (payload.get("username") or "").strip().lower()
+            if not target:
+                self._json({"error": "username is required"}, 400)
+                return
+
+            action = payload.get("action", "")
+            if action == "reset_password":
+                try:
+                    ok = auth.set_password(c, target, payload.get("password", ""))
+                except ValueError as exc:
+                    self._json({"error": str(exc)}, 400)
+                    return
+                if not ok:
+                    self._json({"error": f"No account called '{target}'."}, 404)
+                    return
+                auth.audit(c, user.username, None, "password_reset", target)
+            elif action == "disable":
+                if target == user.username:
+                    self._json({"error": "You cannot disable your own account."}, 400)
+                    return
+                auth.disable_user(c, target, True)
+                auth.audit(c, user.username, None, "account_disabled", target)
+            elif action == "enable":
+                auth.disable_user(c, target, False)
+                auth.audit(c, user.username, None, "account_enabled", target)
+            else:
+                self._json({"error": f"unknown action '{action}'"}, 400)
+                return
+
+            self._json({"ok": True, "users": auth.list_users(c)})
+
+        def _handle_change_password(self, c, user, raw: bytes) -> None:
+            """A user changing their own password. Requires the current one."""
+            if not ctx.require_auth or user is None:
+                self._json({"error": "Sign-in is switched off, so there is no "
+                                     "password to change.", "auth_disabled": True}, 400)
+                return
+            payload = self._read_json(raw)
+            if payload is None:
+                self._json({"error": "bad json"}, 400)
+                return
+
+            row = c.execute("SELECT pw_salt, pw_hash, iterations FROM users WHERE username=?",
+                            (user.username,)).fetchone()
+            if row is None or not auth.verify_password(
+                    payload.get("current_password", ""), row["pw_salt"],
+                    row["pw_hash"], row["iterations"]):
+                auth.audit(c, user.username, None, "password_change_failed", "")
+                self._json({"error": "That is not your current password."}, 403)
+                return
+            try:
+                auth.set_password(c, user.username, payload.get("new_password", ""))
+            except ValueError as exc:
+                self._json({"error": str(exc)}, 400)
+                return
+            auth.audit(c, user.username, None, "password_changed", "")
+            self._json({"ok": True})
 
         def _handle_team(self, c, user) -> None:
             """Who is on the team and what they have been doing.
@@ -660,12 +876,6 @@ def serve(conn, cfg: Config, port: int = 8765, open_browser: bool = True,
           secure_cookie: bool = False) -> None:
     if require_auth:
         auth.init_auth(conn)
-        if auth.user_count(conn) == 0:
-            print("Refusing to start with authentication enabled and no users.\n")
-            print("Create one first:")
-            print("  python pipeline.py create-user --username you --name \"Your Name\" "
-                  "--role admin\n")
-            return
 
     handler = _make_handler(conn, cfg, require_auth, secure_cookie)
     try:
@@ -674,19 +884,34 @@ def serve(conn, cfg: Config, port: int = 8765, open_browser: bool = True,
         print(f"Could not bind {host}:{port} ({exc}). Try --port with another number.")
         return
 
+    no_users = require_auth and auth.user_count(conn) == 0
     display_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
     url = f"http://{display_host}:{port}/"
 
     print("=" * 66)
-    print("  REVIEW CONSOLE")
+    print("  DOCUMENT PREPARATION CONSOLE")
     print("=" * 66)
     print(f"  {url}")
+
+    if no_users:
+        print()
+        print("  FIRST RUN - no accounts yet.")
+        print("  Open the address above and create your account in the browser.")
+        print("  That first account is the administrator; you can add")
+        print("  colleagues from inside the app afterwards.")
+        print()
+        print("  *** Create it before sharing this address. ***")
+        print("  *** Whoever opens it first becomes the administrator. ***")
+    elif require_auth:
+        print(f"  {auth.user_count(conn)} account(s). Sign in to continue.")
+
     if host in ("0.0.0.0", "::"):
+        print()
         print(f"  Listening on ALL interfaces (port {port}).")
-        print("  Teammates reach this at http://<this-machine-ip>:" f"{port}/")
+        print(f"  Colleagues reach this at http://<this-machine-ip>:{port}/")
         if not require_auth:
             print()
-            print("  *** WARNING: reachable on the network with NO authentication. ***")
+            print("  *** WARNING: reachable on the network with NO sign-in. ***")
             print("  *** Anyone who can reach this port can read every document. ***")
             print("  *** Use --require-auth for anything other than a quick test. ***")
         if not secure_cookie:
@@ -694,8 +919,8 @@ def serve(conn, cfg: Config, port: int = 8765, open_browser: bool = True,
             print("  NOTE: cookies are not marked Secure. Put this behind HTTPS")
             print("  (a reverse proxy) and start with --secure-cookie.")
     else:
-        print("  Bound to localhost only - no client document leaves this machine.")
-    print(f"  Authentication: {'ON' if require_auth else 'OFF (local use only)'}")
+        print("  Reachable from this computer only.")
+    print(f"  Sign-in: {'required' if require_auth else 'OFF (local use only)'}")
     print("  Press Ctrl+C to stop.\n")
 
     if open_browser and host in ("127.0.0.1", "localhost"):

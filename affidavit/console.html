@@ -227,6 +227,7 @@
   <section id="view-team" style="display:none">
     <div id="teamnote"></div>
     <div id="teamactive"></div>
+    <div id="teammanage"></div>
     <div class="tablewrap" style="margin-top:14px">
       <div class="bar"><b>Recent activity</b>
         <span class="sub">What everyone has been doing, most recent first.</span></div>
@@ -395,23 +396,214 @@ async function renderTeam() {
     </tr>`).join('') ||
     `<tr><td colspan="4" class="empty">No activity recorded yet.</td></tr>`;
 
-  document.getElementById('teamusers').innerHTML = (t.users || []).length
-    ? `<div class="panel" style="padding:14px 16px;margin-top:14px">
-         <b>Accounts</b>
-         <div class="sub" style="margin-bottom:8px">Created with
-           <code>python pipeline.py create-user</code>.</div>
-         <table class="ref" style="width:100%">
-           <tr><th>Account</th><th>Name</th><th>Role</th><th>Documents</th><th>Last signed in</th></tr>
-           ${t.users.map(u => `<tr>
-             <td><b>${esc(u.username)}</b></td>
-             <td>${esc(u.display_name)}</td>
-             <td>${esc(u.role)}</td>
-             <td>${u.reviewed}</td>
-             <td class="meta">${esc(u.last_login ? String(u.last_login).replace('T',' ').slice(0,16) : 'never')}</td>
-           </tr>`).join('')}
-         </table>
-       </div>`
-    : '';
+  document.getElementById('teamusers').innerHTML = '';
+
+  renderTeamManage(t);
+}
+
+/* ============================== account management ============================== */
+let TEAM = null;
+
+function renderTeamManage(t) {
+  TEAM = t;
+  const el = document.getElementById('teammanage');
+  const me = t.me || {};
+
+  if (!t.auth_enabled) {
+    el.innerHTML = `
+      <div class="panel" style="padding:14px 16px;margin-top:14px">
+        <b>Sign-in is switched off</b>
+        <div class="sub" style="margin-top:4px">
+          Everyone shares one identity, so there are no accounts to manage and no
+          record of who did what. To give each person their own sign-in, stop the
+          app and start it with <code>--users</code> (or double-click
+          <code>start-windows.bat</code>).
+        </div>
+      </div>`;
+    return;
+  }
+
+  const isAdmin = me.role === 'admin';
+  const users = t.users || [];
+
+  const rows = users.map(u => {
+    const isMe = u.username === me.username;
+    return `<tr>
+      <td><b>${esc(u.username)}</b>${isMe ? ' <span class="sub">(you)</span>' : ''}
+          ${u.disabled ? '<span class="pill p-no">DISABLED</span>' : ''}</td>
+      <td>${esc(u.display_name)}</td>
+      <td>${esc(u.role)}</td>
+      <td class="meta">${esc(u.last_login ? String(u.last_login).replace('T',' ').slice(0,16) : 'never')}</td>
+      <td style="white-space:nowrap">
+        ${isAdmin ? `
+          <button class="btn sec sm" onclick="resetPassword('${esc(u.username)}')">Reset password</button>
+          ${isMe ? '' : (u.disabled
+            ? `<button class="btn sec sm" onclick="userAction('enable','${esc(u.username)}')">Re-enable</button>`
+            : `<button class="btn danger sm" onclick="userAction('disable','${esc(u.username)}')">Disable</button>`)}
+        ` : '<span class="sub">&mdash;</span>'}
+        ${isMe ? `<button class="btn sec sm" onclick="changeMyPassword()">Change my password</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="panel" style="padding:14px 16px;margin-top:14px">
+      <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+        <div class="grow">
+          <b>Manage accounts</b>
+          <div class="sub" style="margin-top:4px">
+            ${isAdmin
+              ? 'Add a colleague, reset a forgotten password, or disable someone who has left. No command line needed.'
+              : 'Only an administrator can add or change accounts.'}
+          </div>
+        </div>
+        ${isAdmin ? '<button class="btn primary" onclick="openAddUser()">+ Add a colleague</button>' : ''}
+      </div>
+      <table class="ref" style="width:100%;margin-top:12px">
+        <tr><th>Account</th><th>Name</th><th>Role</th><th>Last signed in</th><th></th></tr>
+        ${rows || '<tr><td colspan="5" class="sub">No accounts yet.</td></tr>'}
+      </table>
+      ${isAdmin ? `
+        <div class="sub" style="margin-top:12px">
+          <b>Administrator</b> can add and remove accounts. <b>Reviewer</b> can work on
+          documents but cannot manage people.
+        </div>` : ''}
+    </div>`;
+}
+
+function openAddUser() {
+  document.getElementById('sheet').innerHTML = `
+    <h2>Add a colleague</h2>
+    <div class="sub">They will be able to sign in straight away with the password you set.</div>
+    <label for="nu_name">Their name</label>
+    <input id="nu_name" placeholder="Raj Patel" autofocus>
+    <label for="nu_user">Username
+      <span class="sub">(what they type to sign in)</span></label>
+    <input id="nu_user" placeholder="raj">
+    <label for="nu_pass">Temporary password
+      <span class="sub">(at least 10 characters &mdash; tell them to change it)</span></label>
+    <input id="nu_pass" type="text" placeholder="e.g. harbour-2024-storage">
+    <label for="nu_role">Role</label>
+    <select id="nu_role">
+      <option value="reviewer">Reviewer &mdash; can work on documents</option>
+      <option value="admin">Administrator &mdash; can also manage accounts</option>
+    </select>
+    <div id="nu_err"></div>
+    <div class="actions">
+      <button class="btn sec" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" id="nu_go" onclick="createUser()">Create account</button>
+    </div>`;
+  document.getElementById('modal').classList.add('on');
+  setTimeout(() => document.getElementById('nu_name').focus(), 50);
+}
+
+async function createUser() {
+  const name = document.getElementById('nu_name').value.trim();
+  const username = document.getElementById('nu_user').value.trim().toLowerCase();
+  const password = document.getElementById('nu_pass').value;
+  const role = document.getElementById('nu_role').value;
+  const err = document.getElementById('nu_err');
+
+  if (!name || !username) {
+    err.innerHTML = '<div class="err">Fill in their name and a username.</div>';
+    return;
+  }
+  if (password.length < 10) {
+    err.innerHTML = '<div class="err">The password needs at least 10 characters.</div>';
+    return;
+  }
+  const go = document.getElementById('nu_go');
+  go.disabled = true; go.innerHTML = '<span class="spinner"></span> Creating&hellip;';
+  const out = await post('api/users/create',
+    {username, display_name: name, password, role});
+  if (out.error) {
+    err.innerHTML = `<div class="err">${esc(out.error)}</div>`;
+    go.disabled = false; go.textContent = 'Create account';
+    return;
+  }
+  closeModal();
+  await renderTeam();
+  toast(`${name} can now sign in as ${username}`);
+}
+
+function resetPassword(username) {
+  document.getElementById('sheet').innerHTML = `
+    <h2>Reset password</h2>
+    <div class="sub">For <b>${esc(username)}</b>. Tell them the new password
+      &mdash; they can change it themselves afterwards.</div>
+    <label for="rp_pass">New password <span class="sub">(at least 10 characters)</span></label>
+    <input id="rp_pass" type="text" placeholder="e.g. harbour-2024-storage">
+    <div id="rp_err"></div>
+    <div class="actions">
+      <button class="btn sec" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" id="rp_go" onclick="doReset('${esc(username)}')">Set password</button>
+    </div>`;
+  document.getElementById('modal').classList.add('on');
+  setTimeout(() => document.getElementById('rp_pass').focus(), 50);
+}
+
+async function doReset(username) {
+  const password = document.getElementById('rp_pass').value;
+  const err = document.getElementById('rp_err');
+  if (password.length < 10) {
+    err.innerHTML = '<div class="err">The password needs at least 10 characters.</div>';
+    return;
+  }
+  const out = await post('api/users/update',
+    {action: 'reset_password', username, password});
+  if (out.error) { err.innerHTML = `<div class="err">${esc(out.error)}</div>`; return; }
+  closeModal();
+  await renderTeam();
+  toast(`New password set for ${username}`);
+}
+
+async function userAction(action, username) {
+  if (action === 'disable' &&
+      !confirm(`Disable ${username}?\n\nThey will be signed out immediately and ` +
+               `cannot sign in again until you re-enable them.\n\n` +
+               `Their work and the record of what they did are kept.`)) return;
+  const out = await post('api/users/update', {action, username});
+  if (out.error) { toast(out.error); return; }
+  await renderTeam();
+  toast(action === 'disable' ? `${username} can no longer sign in`
+                             : `${username} can sign in again`);
+}
+
+function changeMyPassword() {
+  document.getElementById('sheet').innerHTML = `
+    <h2>Change my password</h2>
+    <label for="cp_old">Current password</label>
+    <input id="cp_old" type="password" autocomplete="current-password">
+    <label for="cp_new">New password <span class="sub">(at least 10 characters)</span></label>
+    <input id="cp_new" type="password" autocomplete="new-password">
+    <label for="cp_again">Repeat new password</label>
+    <input id="cp_again" type="password" autocomplete="new-password">
+    <div id="cp_err"></div>
+    <div class="actions">
+      <button class="btn sec" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="doChangePassword()">Change password</button>
+    </div>`;
+  document.getElementById('modal').classList.add('on');
+  setTimeout(() => document.getElementById('cp_old').focus(), 50);
+}
+
+async function doChangePassword() {
+  const cur = document.getElementById('cp_old').value;
+  const nw = document.getElementById('cp_new').value;
+  const again = document.getElementById('cp_again').value;
+  const err = document.getElementById('cp_err');
+  if (nw !== again) {
+    err.innerHTML = '<div class="err">The two new passwords do not match.</div>';
+    return;
+  }
+  if (nw.length < 10) {
+    err.innerHTML = '<div class="err">The new password needs at least 10 characters.</div>';
+    return;
+  }
+  const out = await post('api/users/password', {current_password: cur, new_password: nw});
+  if (out.error) { err.innerHTML = `<div class="err">${esc(out.error)}</div>`; return; }
+  closeModal();
+  toast('Your password has been changed');
 }
 
 /* ============================== ocr ============================== */

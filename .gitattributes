@@ -12,6 +12,15 @@ Dockerfile text eol=lf
 *.yml   text eol=lf
 *.yaml  text eol=lf
 
+# Windows batch files MUST end each line with CRLF. With LF-only endings the
+# command interpreter can misread them, and these are the files a non-technical
+# user is told to double-click.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# macOS/Linux launcher: must be LF, or the kernel rejects the shebang.
+*.command text eol=lf
+
 # Binary - never touch these.
 *.pdf   binary
 *.png   binary
