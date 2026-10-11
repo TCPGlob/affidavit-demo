@@ -1,0 +1,129 @@
+"""Configuration for the affidavit pipeline.
+
+Everything is local. No network calls, no third-party APIs. Client documents
+never leave the machine.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field, asdict
+from pathlib import Path
+
+CONFIG_FILENAME = "affidavit.config.json"
+
+
+@dataclass
+class Config:
+    # Where raw client documents arrive (the only folder a human drops files into)
+    source_dir: Path = Path("intake/source")
+
+    # All derived artefacts live under here
+    work_dir: Path = Path("work")
+    output_dir: Path = Path("output")
+
+    # --- Matter metadata: drives the cover sheet and index headers ---
+    court: str = "ONTARIO\nSUPERIOR COURT OF JUSTICE"
+    court_file_no: str = ""
+    proceeding_between_plaintiff: str = ""
+    proceeding_between_defendant: str = ""
+    deponent_name: str = ""
+    deponent_role: str = ""
+    jurisdiction_rules: str = "Rules of Civil Procedure, R.R.O. 1990, Reg. 194, Rule 30.03"
+
+    # --- Naming convention for normalised files ---
+    # Rendered with {date} {doctype} {hash8} {seq}
+    filename_template: str = "{date}_{doctype}_{hash8}"
+
+    # --- Near-duplicate detection ---
+    # Two documents are treated as the same instrument when BOTH the character
+    # similarity and the significant-token overlap clear these bars. The token
+    # test prevents two unrelated documents that merely share legal vocabulary
+    # from being silently merged -- which in an affidavit would drop a document.
+    near_dup_threshold: float = 0.90
+    near_dup_min_token_overlap: float = 0.85
+
+    # Bates-style numbering of the assembled package. Ontario practice does not
+    # require it; leave False to emit plain sequential exhibit numbers.
+    bates_numbering: bool = False
+    bates_prefix: str = "DOC"
+
+    # Overridable so a test can work against a throwaway database.
+    db_path: Path = Path("work/pipeline.sqlite3")
+
+    extra: dict = field(default_factory=dict)
+
+    # ---- derived paths ----
+    @property
+    def normalized_dir(self) -> Path:
+        return self.work_dir / "normalized"
+
+    @property
+    def quarantine_dir(self) -> Path:
+        return self.work_dir / "quarantine"
+
+    @property
+    def log_dir(self) -> Path:
+        return self.work_dir / "logs"
+
+    @property
+    def reports_dir(self) -> Path:
+        return self.output_dir / "reports"
+
+    @property
+    def schedules_dir(self) -> Path:
+        return self.output_dir / "schedules"
+
+    @property
+    def package_dir(self) -> Path:
+        return self.output_dir / "package"
+
+    @property
+    def collections_dir(self) -> Path:
+        return self.output_dir / "collections"
+
+    def ensure_dirs(self) -> None:
+        for d in (
+            self.source_dir,
+            self.work_dir,
+            self.normalized_dir,
+            self.quarantine_dir,
+            self.log_dir,
+            self.output_dir,
+            self.reports_dir,
+            self.schedules_dir,
+            self.package_dir,
+            self.collections_dir,
+        ):
+            d.mkdir(parents=True, exist_ok=True)
+
+    def to_json(self) -> str:
+        d = asdict(self)
+        for k, v in list(d.items()):
+            if isinstance(v, Path):
+                d[k] = str(v)
+        return json.dumps(d, indent=2)
+
+
+def load_config(root: Path | str = ".") -> Config:
+    """Load config from affidavit.config.json if present, else defaults."""
+    root = Path(root)
+    cfg = Config()
+    cfg.db_path = root / "work" / "pipeline.sqlite3"
+    path = root / CONFIG_FILENAME
+    if path.exists():
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        known = {f for f in Config.__dataclass_fields__}
+        for k, v in raw.items():
+            if k not in known:
+                cfg.extra[k] = v
+                continue
+            if k in {"source_dir", "work_dir", "output_dir", "db_path"}:
+                setattr(cfg, k, root / v)
+            else:
+                setattr(cfg, k, v)
+    else:
+        cfg.source_dir = root / cfg.source_dir
+        cfg.work_dir = root / cfg.work_dir
+        cfg.output_dir = root / cfg.output_dir
+    return cfg

@@ -1,0 +1,26 @@
+# Client material and all derived artifacts must never be committed.
+# Only code and documentation belong in version control.
+
+# Client documents
+intake/
+
+# Pipeline state and derived output
+work/
+output/
+vendor/
+
+# Matter-specific metadata (court file numbers, party names)
+affidavit.config.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,653 @@
+"""Review console: the human gate.
+
+Serves a local-only web page where the supervising lawyer marks each document
+Schedule A (produce), B (object / privilege) or C (no longer in possession).
+
+The page markup lives in console.html so it can be edited without touching
+Python. Help text comes from help.py, which is also mirrored in the README, so
+the on-screen instructions cannot drift from the documentation.
+
+The machine never writes a schedule value on its own. It may *suggest* a
+privilege ground from document text, and the UI shows that suggestion clearly
+labelled as unconfirmed.
+"""
+
+from __future__ import annotations
+
+import json
+import socket
+import webbrowser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlparse
+
+from . import auth, collections, db, help as help_mod
+from .config import Config
+
+CONSOLE_HTML = Path(__file__).resolve().parent / "console.html"
+LOGIN_HTML = Path(__file__).resolve().parent / "login.html"
+
+
+def _console_page() -> bytes:
+    try:
+        return CONSOLE_HTML.read_bytes()
+    except OSError:
+        return (
+            b"<!DOCTYPE html><html><body style='font-family:sans-serif;padding:40px'>"
+            b"<h2>Review console template missing</h2>"
+            b"<p>Expected to find <code>affidavit/console.html</code> next to the "
+            b"pipeline code. Restore that file and restart the console.</p>"
+            b"</body></html>"
+        )
+
+def fetch_documents(conn) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT d.id, d.title_guess, d.canonical_src, d.doc_type, d.doc_date,
+               d.date_source, d.page_count, d.pdf_status, d.status_detail,
+               d.summary, d.privilege_flags, d.needs_ocr,
+               (SELECT COUNT(*) FROM source_files s WHERE s.doc_id = d.id) AS dup_count,
+               COALESCE(dec.schedule, '')          AS schedule,
+               COALESCE(dec.privilege_ground, '')  AS privilege_ground,
+               COALESCE(dec.description, '')       AS description,
+               COALESCE(dec.reviewed_by, '')       AS reviewed_by,
+               COALESCE(dec.reviewed_at, '')       AS reviewed_at,
+               COALESCE(dec.editing_by, '')        AS editing_by
+        FROM documents d
+        LEFT JOIN decisions dec ON dec.doc_id = d.id
+        ORDER BY (d.doc_date IS NULL), d.doc_date, d.id
+        """
+    ).fetchall()
+
+    out = []
+    tags = db.all_tags(conn)
+    memberships: dict[int, list[str]] = {}
+    for row in conn.execute(
+        """SELECT i.doc_id, i.collection_id, c.name
+           FROM collection_items i JOIN collections c ON c.id = i.collection_id
+           ORDER BY c.name"""
+    ):
+        memberships.setdefault(row["doc_id"], []).append(
+            {"id": row["collection_id"], "name": row["name"]}
+        )
+
+    for r in rows:
+        item = dict(r)
+        try:
+            item["privilege_flags"] = json.loads(item["privilege_flags"] or "[]")
+        except json.JSONDecodeError:
+            item["privilege_flags"] = []
+        item["tags"] = tags.get(item["id"], {})
+        cols = memberships.get(item["id"], [])
+        item["collections"] = cols
+        item["collection_ids"] = [c["id"] for c in cols]
+        item["collection_names"] = [c["name"] for c in cols]
+        out.append(item)
+    return out
+
+
+# ---------------------------------------------------------------- handler
+
+class _Ctx:
+    """Shared, immutable per-server context."""
+
+    def __init__(self, cfg: Config, require_auth: bool, secure_cookie: bool):
+        self.cfg = cfg
+        self.require_auth = require_auth
+        self.secure_cookie = secure_cookie
+
+
+def _cookie_token(header: str | None) -> str | None:
+    if not header:
+        return None
+    for part in header.split(";"):
+        name, _, value = part.strip().partition("=")
+        if name == auth.COOKIE_NAME and value:
+            return value
+    return None
+
+
+def _login_page(error: str = "") -> bytes:
+    try:
+        html = LOGIN_HTML.read_text(encoding="utf-8")
+    except OSError:
+        html = ("<!DOCTYPE html><html><body style='font-family:sans-serif;padding:40px'>"
+                "<h2>Sign in</h2><form method='POST' action='/login'>"
+                "<p><input name='username' placeholder='username'></p>"
+                "<p><input name='password' type='password' placeholder='password'></p>"
+                "<button>Sign in</button></form>__ERROR__</body></html>")
+    marker = f'<div class="err">{error}</div>' if error else ""
+    return html.replace("__ERROR__", marker).encode("utf-8")
+
+
+def _make_handler(conn, cfg: Config, require_auth: bool = False,
+                  secure_cookie: bool = False):
+    """Build a request handler.
+
+    The enclosing `conn` is unused for queries: the console is threaded, and a
+    sqlite3 connection may only be used on the thread that created it. Each
+    request opens its own connection, guarded by a lock so concurrent reviewers
+    cannot lose a decision.
+    """
+    import threading
+
+    lock = threading.Lock()
+    ctx = _Ctx(cfg, require_auth, secure_cookie)
+
+    class Handler(BaseHTTPRequestHandler):
+        # HTTP/1.0 closes the connection after each response. With HTTP/1.1 a
+        # bodyless redirect (303 with Content-Length: 0) leaves the client
+        # waiting for a response that never completes, so keep-alive is more
+        # trouble than it is worth for a local review console.
+        protocol_version = "HTTP/1.0"
+
+        def log_message(self, *args):  # keep the console quiet
+            pass
+
+        # ---------------- plumbing ----------------
+        def _send(self, code: int, body: bytes, ctype: str,
+                  extra: list[tuple[str, str]] | None = None) -> None:
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "same-origin")
+            for k, v in (extra or []):
+                self.send_header(k, v)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _json(self, obj, code: int = 200) -> None:
+            self._send(code, json.dumps(obj).encode("utf-8"), "application/json")
+
+        def _redirect(self, location: str, cookie: str | None = None) -> None:
+            extra = [("Location", location)]
+            if cookie:
+                extra.append(("Set-Cookie", cookie))
+            self._send(303, b"", "text/plain", extra)
+
+        def _cookie_header(self, token: str, max_age: int) -> str:
+            bits = [
+                f"{auth.COOKIE_NAME}={token}",
+                "Path=/", "HttpOnly", "SameSite=Strict", f"Max-Age={max_age}",
+            ]
+            if ctx.secure_cookie:
+                bits.append("Secure")
+            return "; ".join(bits)
+
+        def _clear_cookie_header(self) -> str:
+            bits = [f"{auth.COOKIE_NAME}=", "Path=/", "HttpOnly",
+                    "SameSite=Strict", "Max-Age=0"]
+            if ctx.secure_cookie:
+                bits.append("Secure")
+            return "; ".join(bits)
+
+        def _origin_ok(self) -> bool:
+            """Reject cross-site state changes (defence in depth over SameSite)."""
+            origin = self.headers.get("Origin")
+            if not origin:
+                return True  # non-browser client (curl, tests)
+            host = self.headers.get("Host", "")
+            return origin.split("//", 1)[-1] == host
+
+        def _current_user(self, c):
+            if not ctx.require_auth:
+                return None
+            return auth.resolve_session(c, _cookie_token(self.headers.get("Cookie")))
+
+        def _effective_user(self, c):
+            """The identity writes are attributed to.
+
+            With authentication disabled there is no real account, so local
+            edits are attributed to a clearly-named stand-in rather than being
+            left blank or, worse, taken from the request body.
+            """
+            if not ctx.require_auth:
+                return auth.SessionUser(0, "local", "Local user (no sign-in)", "admin")
+            return self._current_user(c)
+
+        def _require_user(self, c):
+            """Return the signed-in user, or send a redirect/401 and return None.
+
+            When authentication is disabled this returns None immediately and
+            the caller proceeds: no user, but no gate either.
+            """
+            if not ctx.require_auth:
+                return None
+            user = self._current_user(c)
+            if user is not None:
+                return user
+            if self.command == "GET":
+                self._redirect("/login")
+            else:
+                self._json({"error": "not signed in"}, 401)
+            return None
+
+        def _blocked(self, user) -> bool:
+            """True when access must be refused for this caller."""
+            return ctx.require_auth and user is None
+
+        # ---------------- GET ----------------
+        def do_GET(self) -> None:  # noqa: N802
+            path = urlparse(self.path).path
+            try:
+                with lock:
+                    with db.connect_for_thread(cfg.db_path) as c:
+                        if path == "/login":
+                            if not ctx.require_auth:
+                                self._redirect("/")
+                                return
+                            self._send(200, _login_page(), "text/html; charset=utf-8")
+                            return
+                        if path == "/logout":
+                            auth.logout(c, _cookie_token(self.headers.get("Cookie")))
+                            self._redirect("/login", self._clear_cookie_header())
+                            return
+                        if path == "/healthz":
+                            self._json({"ok": True})
+                            return
+
+                        user = self._require_user(c)
+                        if self._blocked(user):
+                            return
+
+                        if path in ("/", "/index.html"):
+                            self._send(200, _console_page(), "text/html; charset=utf-8")
+                        elif path == "/api/help":
+                            self._json(help_mod.as_dict())
+                        elif path == "/api/documents":
+                            self._json({
+                                "documents": fetch_documents(c),
+                                "me": ({"username": user.username,
+                                        "display_name": user.display_name,
+                                        "role": user.role} if user else None),
+                                "auth": ctx.require_auth,
+                            })
+                        elif path == "/api/audit":
+                            if user is not None and not user.is_admin:
+                                self._json({"error": "admin only"}, 403)
+                            else:
+                                self._json({"entries": auth.recent_audit(c)})
+                        elif path == "/api/team":
+                            self._handle_team(c, user)
+                        elif path == "/api/collections":
+                            self._json({
+                                "collections": db.list_collections(c),
+                                "collections_dir": str(cfg.collections_dir),
+                            })
+                        elif path.startswith("/api/collections/"):
+                            try:
+                                cid = int(path.rsplit("/", 1)[-1])
+                            except ValueError:
+                                self._send(404, b"not found", "text/plain")
+                                return
+                            self._handle_collection_detail(c, cid)
+                        else:
+                            self._send(404, b"not found", "text/plain")
+            except Exception as exc:  # noqa: BLE001
+                self._json({"error": str(exc)}, 500)
+
+        # ---------------- POST ----------------
+        def do_POST(self) -> None:  # noqa: N802
+            path = urlparse(self.path).path
+            if not self._origin_ok():
+                self._json({"error": "cross-origin request refused"}, 403)
+                return
+
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            raw = self.rfile.read(length) if length else b""
+
+            try:
+                with lock:
+                    with db.connect_for_thread(cfg.db_path) as c:
+                        if path == "/login":
+                            self._handle_login(c, raw)
+                            return
+
+                        user = self._require_user(c)
+                        if self._blocked(user):
+                            return
+                        actor = user or self._effective_user(c)
+                        if path == "/api/decision":
+                            self._handle_decision(c, actor, raw)
+                        elif path == "/api/claim":
+                            self._handle_claim(c, actor, raw)
+                        elif path == "/api/collections/create":
+                            self._handle_collection_create(c, actor, raw)
+                        elif path == "/api/collections/action":
+                            self._handle_collection_action(c, actor, raw)
+                        elif path == "/api/collections/export":
+                            self._handle_export(c, actor, raw)
+                        else:
+                            self._send(404, b"not found", "text/plain")
+            except Exception as exc:  # noqa: BLE001
+                self._json({"error": str(exc)}, 500)
+
+        def _handle_login(self, c, raw: bytes) -> None:
+            from urllib.parse import parse_qs
+
+            form = parse_qs(raw.decode("utf-8", "replace"))
+            username = (form.get("username") or [""])[0]
+            password = (form.get("password") or [""])[0]
+
+            token, user = auth.login(c, username, password,
+                                     self.headers.get("User-Agent", ""))
+            if user is None:
+                auth.audit(c, username or "(blank)", None, "login_failed", "")
+                self._send(401, _login_page("Incorrect username or password."),
+                           "text/html; charset=utf-8")
+                return
+            auth.audit(c, user.username, None, "login", "")
+            self._redirect("/", self._cookie_header(token, auth.SESSION_HOURS * 3600))
+
+        def _read_json(self, raw: bytes) -> dict | None:
+            try:
+                payload = json.loads(raw or b"{}")
+                return payload if isinstance(payload, dict) else None
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return None
+
+        def _handle_team(self, c, user) -> None:
+            """Who is on the team and what they have been doing.
+
+            Deliberately readable by every signed-in user, not just admins:
+            on a shared pool of collections, knowing who else is working and on
+            what is the difference between collaboration and collision.
+            """
+            if not ctx.require_auth:
+                self._json({
+                    "auth_enabled": False,
+                    "me": None,
+                    "users": [],
+                    "active": [],
+                    "activity": auth.activity_feed(c, limit=25),
+                    "note": ("Sign-in is switched off, so edits are recorded "
+                             "against 'local' rather than a person. Start the "
+                             "console with --require-auth to record who did what."),
+                })
+                return
+            self._json({
+                "auth_enabled": True,
+                "me": ({"username": user.username, "display_name": user.display_name,
+                        "role": user.role} if user else None),
+                "users": auth.list_users(c),
+                "active": auth.active_users(c),
+                "activity": auth.activity_feed(c, limit=25),
+                "note": "",
+            })
+
+        def _handle_collections_get(self, c) -> None:
+            self._json({"collections": db.list_collections(c)})
+
+        def _handle_collection_detail(self, c, collection_id: int) -> None:
+            collection = db.get_collection(c, collection_id)
+            if collection is None:
+                self._json({"error": "no such collection"}, 404)
+                return
+            items = db.collection_items(c, collection_id)
+            for it in items:
+                it["tags"] = db.tags_for(c, it["id"])
+            self._json({
+                "collection": collection,
+                "items": items,
+                "contents": [str(p) for p in
+                             sorted((Path(collection["export_path"]) / "PDFs").glob("*.pdf"))
+                             ] if collection.get("export_path")
+                and (Path(collection["export_path"]) / "PDFs").exists() else [],
+            })
+
+        def _handle_collection_create(self, c, user, raw: bytes) -> None:
+            payload = self._read_json(raw)
+            if payload is None:
+                self._json({"error": "bad json"}, 400)
+                return
+            try:
+                cid = db.create_collection(
+                    c, payload.get("name", ""), payload.get("description", ""),
+                    user.username if user else "local")
+            except db.CollectionError as exc:
+                self._json({"error": str(exc)}, 400)
+                return
+            auth.audit(c, user.username if user else "local", None,
+                       "collection_created", payload.get("name", ""))
+            self._json({"ok": True, "collection_id": cid,
+                        "collections": db.list_collections(c)})
+
+        def _handle_collection_action(self, c, user, raw: bytes) -> None:
+            payload = self._read_json(raw)
+            if payload is None:
+                self._json({"error": "bad json"}, 400)
+                return
+            who = user.username if user else "local"
+            action = payload.get("action", "")
+            cid = payload.get("collection_id")
+            doc_ids = [d for d in payload.get("doc_ids", []) if isinstance(d, int)]
+
+            # Tagging a document is not a collection operation, so it needs no
+            # collection id. Everything else does.
+            if action != "tag" and not isinstance(cid, int):
+                self._json({"error": "collection_id is required"}, 400)
+                return
+
+            try:
+                if action == "add":
+                    n = db.add_to_collection(c, cid, doc_ids, who)
+                    auth.audit(c, who, None, "collection_add",
+                               f"{n} document(s) -> {cid}")
+                elif action == "remove":
+                    n = db.remove_from_collection(c, cid, doc_ids)
+                    auth.audit(c, who, None, "collection_remove",
+                               f"{n} document(s) <- {cid}")
+                elif action == "rename":
+                    db.set_collection_fields(
+                        c, cid, name=payload.get("name", ""),
+                        expected_version=payload.get("expected_version"))
+                elif action == "describe":
+                    db.set_collection_fields(
+                        c, cid, description=payload.get("description", ""),
+                        expected_version=payload.get("expected_version"))
+                elif action == "delete":
+                    db.delete_collection(c, cid)
+                    auth.audit(c, who, None, "collection_deleted", str(cid))
+                elif action == "move":
+                    doc_id = payload.get("doc_id")
+                    if isinstance(doc_id, int):
+                        db.move_item(c, cid, doc_id, int(payload.get("direction", 0)))
+                elif action == "reorder":
+                    db.reorder_collection(c, cid, doc_ids)
+                elif action == "name_item":
+                    doc_id = payload.get("doc_id")
+                    if isinstance(doc_id, int):
+                        db.set_item_field(c, cid, doc_id, "display_name",
+                                          payload.get("display_name", ""),
+                                          expected_version=payload.get("expected_version"))
+                elif action == "note_item":
+                    doc_id = payload.get("doc_id")
+                    if isinstance(doc_id, int):
+                        db.set_item_field(c, cid, doc_id, "note",
+                                          payload.get("note", ""),
+                                          expected_version=payload.get("expected_version"))
+                elif action == "tag":
+                    doc_id = payload.get("doc_id")
+                    if isinstance(doc_id, int):
+                        db.set_tags(c, doc_id, {payload.get("key", "tag"):
+                                                payload.get("value", "")})
+                else:
+                    self._json({"error": f"unknown action '{action}'"}, 400)
+                    return
+            except db.ConflictError as exc:
+                # 409 means "your copy is stale". The current value is returned
+                # so the user can decide rather than silently losing their typing.
+                self._json({"error": str(exc), "conflict": True,
+                            "current": exc.current}, 409)
+                return
+            except db.CollectionError as exc:
+                self._json({"error": str(exc)}, 400)
+                return
+
+            self._json({"ok": True, "collections": db.list_collections(c),
+                        "items": db.collection_items(c, cid) if isinstance(cid, int) else []})
+
+        def _handle_export(self, c, user, raw: bytes) -> None:
+            payload = self._read_json(raw)
+            if payload is None:
+                self._json({"error": "bad json"}, 400)
+                return
+            cid = payload.get("collection_id")
+            if not isinstance(cid, int):
+                self._json({"error": "collection_id is required"}, 400)
+                return
+            who = user.username if user else "local"
+            try:
+                result = collections.export_collection(c, cfg, cid, username=who)
+            except db.CollectionError as exc:
+                self._json({"error": str(exc)}, 400)
+                return
+            auth.audit(c, who, None, "collection_exported",
+                       f"{result['collection']['name']} :: "
+                       f"{len(result['exported'])} document(s)")
+            self._json({
+                "ok": True,
+                "bundle": result["bundle"],
+                "exported": len(result["exported"]),
+                "skipped": result["skipped"],
+                "pages": result["pages"],
+                "ocr_flagged": len(result["ocr_flagged"]),
+                "collections": db.list_collections(c),
+                "files": sorted(
+                    p.name for p in (Path(result["bundle"]) / "PDFs").glob("*.pdf")
+                ),
+                "cover_doc": next(
+                    (p.name for p in Path(result["bundle"]).glob("*.docx")), ""),
+            })
+
+        def _handle_claim(self, c, user, raw: bytes) -> None:
+            try:
+                payload = json.loads(raw or b"{}")
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                self._json({"error": "bad json"}, 400)
+                return
+            doc_id = payload.get("doc_id")
+            if isinstance(doc_id, int):
+                db.claim_document(c, doc_id, user.username)
+            self._json({"ok": True})
+
+        def _handle_decision(self, c, user, raw: bytes) -> None:
+            try:
+                payload = json.loads(raw or b"{}")
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                self._json({"error": "bad json"}, 400)
+                return
+
+            allowed = {"schedule", "privilege_ground", "description", "notes"}
+            conflicts: list[dict] = []
+            applied = 0
+
+            for item in payload.get("decisions", []):
+                doc_id = item.get("doc_id")
+                if not isinstance(doc_id, int):
+                    continue
+                fields = {k: v for k, v in item.items() if k in allowed}
+                if not fields:
+                    continue
+
+                # Warn if someone else is mid-edit, but never block: a stale
+                # lock must not be able to freeze the affidavit before a deadline.
+                row = c.execute(
+                    "SELECT editing_by, reviewed_by FROM decisions WHERE doc_id=?",
+                    (doc_id,),
+                ).fetchone()
+                if row and row["editing_by"] and row["editing_by"] != user.username:
+                    conflicts.append({"doc_id": doc_id, "editing_by": row["editing_by"]})
+                if row and row["reviewed_by"] and row["reviewed_by"] != user.username \
+                        and "schedule" in fields and fields["schedule"]:
+                    conflicts.append({"doc_id": doc_id, "previous_reviewer": row["reviewed_by"]})
+
+                # The reviewer is always the authenticated user, never a
+                # client-supplied string, so attribution cannot be forged.
+                fields["reviewed_by"] = user.username
+                db.set_decision(c, doc_id, **fields)
+                db.claim_document(c, doc_id, user.username)
+                applied += 1
+
+                if "schedule" in fields and fields["schedule"]:
+                    auth.audit(c, user.username, doc_id, "schedule_set",
+                               f"{fields['schedule']} :: {fields.get('privilege_ground', '')}")
+                else:
+                    auth.audit(c, user.username, doc_id, "field_edit",
+                               ",".join(sorted(fields)))
+
+            self._json({
+                "ok": True,
+                "applied": applied,
+                "documents": fetch_documents(c),
+                "conflicts": conflicts,
+                "me": {"username": user.username, "display_name": user.display_name,
+                       "role": user.role},
+                "auth": ctx.require_auth,
+            })
+
+    return Handler
+
+
+def serve(conn, cfg: Config, port: int = 8765, open_browser: bool = True,
+          host: str = "127.0.0.1", require_auth: bool = False,
+          secure_cookie: bool = False) -> None:
+    if require_auth:
+        auth.init_auth(conn)
+        if auth.user_count(conn) == 0:
+            print("Refusing to start with authentication enabled and no users.\n")
+            print("Create one first:")
+            print("  python pipeline.py create-user --username you --name \"Your Name\" "
+                  "--role admin\n")
+            return
+
+    handler = _make_handler(conn, cfg, require_auth, secure_cookie)
+    try:
+        httpd = ThreadingHTTPServer((host, port), handler)
+    except OSError as exc:
+        print(f"Could not bind {host}:{port} ({exc}). Try --port with another number.")
+        return
+
+    display_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+    url = f"http://{display_host}:{port}/"
+
+    print("=" * 66)
+    print("  REVIEW CONSOLE")
+    print("=" * 66)
+    print(f"  {url}")
+    if host in ("0.0.0.0", "::"):
+        print(f"  Listening on ALL interfaces (port {port}).")
+        print("  Teammates reach this at http://<this-machine-ip>:" f"{port}/")
+        if not require_auth:
+            print()
+            print("  *** WARNING: reachable on the network with NO authentication. ***")
+            print("  *** Anyone who can reach this port can read every document. ***")
+            print("  *** Use --require-auth for anything other than a quick test. ***")
+        if not secure_cookie:
+            print()
+            print("  NOTE: cookies are not marked Secure. Put this behind HTTPS")
+            print("  (a reverse proxy) and start with --secure-cookie.")
+    else:
+        print("  Bound to localhost only - no client document leaves this machine.")
+    print(f"  Authentication: {'ON' if require_auth else 'OFF (local use only)'}")
+    print("  Press Ctrl+C to stop.\n")
+
+    if open_browser and host in ("127.0.0.1", "localhost"):
+        try:
+            webbrowser.open(url)
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\n  Review console stopped.")
+    finally:
+        httpd.server_close()
+
+
+def port_available(port: int) -> bool:
+    with socket.socket() as s:
+        return s.connect_ex(("127.0.0.1", port)) != 0
+

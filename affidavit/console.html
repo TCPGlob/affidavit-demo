@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Document Preparation &mdash; for Zibbit</title>
+<style>
+  :root{
+    --line:#e4e7eb; --ink:#101828; --mut:#667085; --bg:#f8f9fb; --card:#fff;
+    --accent:#1570ef; --ok:#067647; --okbg:#ecfdf3; --warn:#b54708; --warnbg:#fffaeb;
+    --danger:#b42318; --dangerbg:#fef3f2; --grey:#475467; --greybg:#f2f4f7;
+  }
+  *{box-sizing:border-box}
+  body{font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       margin:0;color:var(--ink);background:var(--bg)}
+  h1{font-size:17px;margin:0 0 3px}
+  h2{font-size:15px;margin:0 0 10px}
+  h3{font-size:13px;margin:16px 0 6px}
+  code{background:#f2f4f7;padding:1px 5px;border-radius:4px;font-size:12px}
+  a{color:var(--accent)}
+  .sub{color:var(--mut);font-size:12px}
+  .grow{flex:1;min-width:160px}
+
+  /* header */
+  header{position:sticky;top:0;z-index:30;background:var(--card);border-bottom:1px solid var(--line);
+         padding:12px 20px}
+  .hrow{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap}
+  .hbtns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .tabs{display:flex;gap:4px;margin-top:12px}
+  .tab{padding:7px 15px;border-radius:8px 8px 0 0;border:1px solid transparent;border-bottom:0;
+       cursor:pointer;font-weight:600;font-size:13px;color:var(--mut);background:transparent}
+  .tab.on{background:var(--bg);border-color:var(--line);color:var(--ink)}
+  .tab .badge{background:#eaecf0;border-radius:99px;padding:1px 7px;font-size:10.5px;margin-left:6px;
+              color:var(--grey)}
+  .tab.on .badge{background:#d1e9ff;color:#175cd3}
+
+  /* buttons */
+  .btn{background:var(--ink);color:#fff;border:0;border-radius:7px;padding:8px 14px;font:inherit;
+       font-weight:600;cursor:pointer}
+  .btn:hover{opacity:.9}
+  .btn.sec{background:#fff;color:var(--ink);border:1px solid #d0d5dd}
+  .btn.sec:hover{background:#f9fafb}
+  .btn.primary{background:var(--accent)}
+  .btn.danger{background:#fff;color:var(--danger);border:1px solid #fecdca}
+  .btn.sm{padding:5px 10px;font-size:12.5px}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+
+  main{padding:16px 20px 110px;max-width:1560px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:16px}
+  .panel > summary{padding:13px 16px;cursor:pointer;font-weight:600;font-size:14px;list-style:none;
+        display:flex;gap:10px;align-items:center}
+  .panel > summary::-webkit-details-marker{display:none}
+  .panel > summary::before{content:"\25B8";color:var(--mut);transition:transform .15s}
+  .panel[open] > summary::before{transform:rotate(90deg)}
+  .pbody{padding:0 16px 18px}
+  .hintline{color:var(--mut);font-size:12px;font-weight:400}
+
+  /* steps */
+  .steps{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));margin:6px 0 18px}
+  .step{border:1px solid var(--line);border-radius:9px;padding:11px 13px;background:#fcfcfd;position:relative}
+  .step .n{display:inline-flex;width:20px;height:20px;border-radius:99px;background:var(--ink);color:#fff;
+           font-size:11px;font-weight:700;align-items:center;justify-content:center;margin-bottom:6px}
+  .step .t{font-weight:600;font-size:12.5px;margin-bottom:4px}
+  .step .bd{color:var(--mut);font-size:11.5px;line-height:1.5}
+
+  /* tables */
+  .tablewrap{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+  th{background:#f2f4f7;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);
+     position:sticky;top:0;z-index:5}
+  tr:hover{background:#fcfcfd}
+  .name{font-weight:600;font-size:13px}
+  .meta{color:var(--mut);font-size:11px;word-break:break-word}
+  select,input[type=text],input[type=password],textarea{
+      padding:6px 8px;border:1px solid #d0d5dd;border-radius:6px;font:inherit;font-size:12.5px;
+      width:100%;background:#fff}
+  select:focus,input:focus,textarea:focus{outline:2px solid #84caff;outline-offset:-1px}
+  .pill{display:inline-block;padding:2px 7px;border-radius:99px;font-size:9.5px;font-weight:700;
+        letter-spacing:.04em;margin:2px 3px 0 0;cursor:help}
+  .p-ok{background:#d1fadf;color:#05603a} .p-no{background:#fee4e2;color:#912018}
+  .p-ocr{background:#fef0c7;color:#93370d} .p-dup{background:#e9d7fe;color:#5925dc}
+  .p-emp{background:#eaecf0;color:#475467} .p-info{background:#d1e9ff;color:#175cd3}
+  .empty{padding:22px;color:var(--mut);font-size:13px}
+  .tagchip{display:inline-block;background:#f2f4f7;border:1px solid var(--line);border-radius:99px;
+           padding:2px 9px;font-size:11px;margin:2px 4px 0 0}
+  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:11px 15px;
+       border-bottom:1px solid var(--line)}
+
+  /* collection cards */
+  .cards{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(310px,1fr))}
+  .ccard{border:1px solid var(--line);border-radius:10px;padding:14px 15px;background:#fff;cursor:pointer;
+         transition:box-shadow .15s,border-color .15s}
+  .ccard:hover{border-color:#84caff;box-shadow:0 2px 10px rgba(21,112,239,.10)}
+  .ccard .ct{font-weight:700;font-size:14px;margin-bottom:3px;word-break:break-word}
+  .ccard .cm{color:var(--mut);font-size:11.5px}
+  .ccard .stats{margin-top:9px;display:flex;gap:14px;flex-wrap:wrap;font-size:12px}
+  .ccard .stats b{font-weight:700}
+
+  /* sticky action bar */
+  #bulkbar{position:sticky;bottom:0;z-index:25;background:#101828;color:#fff;border-radius:10px 10px 0 0;
+           padding:12px 16px;display:none;gap:12px;flex-wrap:wrap;align-items:center;
+           box-shadow:0 -4px 18px rgba(16,24,40,.20)}
+  #bulkbar.on{display:flex}
+  #bulkbar .lbl{font-size:12.5px;color:#98a2b3}
+  #bulkbar select,#bulkbar input{border:1px solid #475467;background:#1d2939;color:#fff;border-radius:6px;
+           padding:7px 9px;font:inherit;font-size:13px}
+  #bulkbar select{min-width:210px;width:auto}
+  #bulkbar input{min-width:200px;width:auto}
+  #bulkbar .btn{background:#fff;color:var(--ink)}
+  #bulkbar .btn.ghost{background:transparent;color:#d0d5dd;border:1px solid #475467}
+  #bulkbar .count{font-weight:700;font-size:13.5px}
+
+  /* modal */
+  #modal{position:fixed;inset:0;background:rgba(16,24,40,.5);display:none;z-index:60;
+         align-items:center;justify-content:center;padding:20px}
+  #modal.on{display:flex}
+  .sheet{background:#fff;border-radius:12px;width:100%;max-width:520px;padding:22px 24px;
+         box-shadow:0 20px 50px rgba(16,24,40,.3);max-height:90vh;overflow:auto}
+  .sheet h2{margin:0 0 4px}
+  .sheet label{display:block;font-size:12.5px;font-weight:600;margin:14px 0 5px}
+  .sheet .actions{display:flex;gap:9px;justify-content:flex-end;margin-top:22px}
+  .err{background:var(--dangerbg);border:1px solid #fecdca;color:var(--danger);padding:9px 12px;
+       border-radius:7px;font-size:12.5px;margin-top:12px}
+
+  /* result */
+  .result{border:1px solid var(--line);border-radius:9px;padding:14px 16px;margin-bottom:14px;background:#fff}
+  .result.ok{border-left:5px solid var(--ok);background:var(--okbg)}
+  .result.warn{border-left:5px solid var(--warn);background:var(--warnbg)}
+  .result .path{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;word-break:break-all;
+                background:#fff;border:1px solid var(--line);border-radius:5px;padding:6px 9px;margin-top:8px}
+
+  #toast{position:fixed;bottom:78px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;
+         padding:10px 18px;border-radius:8px;opacity:0;transition:opacity .2s;font-size:13px;z-index:70;
+         max-width:80vw;text-align:center}
+  #toast.on{opacity:1}
+  .spinner{display:inline-block;width:13px;height:13px;border:2px solid #d0d5dd;border-top-color:var(--accent);
+           border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hrow">
+    <div class="grow">
+      <h1>Document Preparation &mdash; feeding Zibbit</h1>
+      <div class="sub" id="stat">Loading&hellip;</div>
+    </div>
+    <div class="hbtns">
+      <span id="whoami" class="sub"></span>
+      <button class="btn sec" onclick="toggleGuide()" id="guidebtn">Instructions</button>
+      <button class="btn sec" onclick="refreshAll()">Refresh</button>
+      <button class="btn sec" id="signout" style="display:none" onclick="location.href='/logout'">Sign out</button>
+    </div>
+  </div>
+  <div class="tabs">
+    <div class="tab on" id="tab-lib" onclick="showTab('lib')">Library <span class="badge" id="libcount">0</span></div>
+    <div class="tab" id="tab-col" onclick="showTab('col')">Collections <span class="badge" id="colcount">0</span></div>
+    <div class="tab" id="tab-team" onclick="showTab('team')">Team <span class="badge" id="teamcount">0</span></div>
+  </div>
+</header>
+
+<main>
+  <div id="result"></div>
+
+  <!-- ===================== GUIDE ===================== -->
+  <details class="panel" id="guide" open>
+    <summary onclick="toggleGuide()">How this works &mdash; read this first
+      <span class="hintline">(click to collapse)</span></summary>
+    <div class="pbody" id="guidebody"></div>
+  </details>
+
+  <!-- ===================== LIBRARY ===================== -->
+  <section id="view-lib">
+    <div class="tablewrap">
+      <div class="bar">
+        <label class="sub" style="font-weight:400">Show
+          <select id="filter" style="width:auto;display:inline-block;margin-left:5px">
+            <option value="all">All documents</option>
+            <option value="notpdf">Not yet PDF</option>
+            <option value="ocr">Scans needing OCR</option>
+            <option value="tagged">Tagged</option>
+          </select>
+        </label>
+        <input type="text" id="search" placeholder="Search by name, type or date&hellip;"
+               style="max-width:280px" oninput="renderLibrary()">
+        <span class="grow"></span>
+        <label class="sub" style="font-weight:400;white-space:nowrap">
+          <input type="checkbox" id="all" onclick="toggleAll(this)" style="width:auto"> Select all shown
+        </label>
+      </div>
+      <table>
+        <thead><tr>
+          <th style="width:34px"></th>
+          <th style="width:26%">Document</th>
+          <th style="width:9%">Type</th>
+          <th style="width:9%">Date</th>
+          <th style="width:6%">Pages</th>
+          <th style="width:11%">Status</th>
+          <th style="width:17%">Tags <span class="sub">(yours)</span></th>
+          <th style="width:18%">In collections</th>
+        </tr></thead>
+        <tbody id="librows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ===================== COLLECTIONS ===================== -->
+  <section id="view-col" style="display:none">
+    <div class="panel" style="padding:14px 16px">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <div class="grow">
+          <b>Collections</b>
+          <div class="sub">A collection is a bundle of documents you intend to turn into an exhibit.
+            Everyone on the team can see and work on every collection.</div>
+        </div>
+        <button class="btn primary" onclick="openCreate()">+ New collection</button>
+      </div>
+    </div>
+    <div id="collist" class="cards"></div>
+    <div id="codetail" style="display:none"></div>
+  </section>
+
+  <!-- ===================== TEAM ===================== -->
+  <section id="view-team" style="display:none">
+    <div id="teamnote"></div>
+    <div id="teamactive"></div>
+    <div class="tablewrap" style="margin-top:14px">
+      <div class="bar"><b>Recent activity</b>
+        <span class="sub">What everyone has been doing, most recent first.</span></div>
+      <table>
+        <thead><tr>
+          <th style="width:20%">When</th>
+          <th style="width:14%">Who</th>
+          <th style="width:40%">What</th>
+          <th style="width:26%">Document</th>
+        </tr></thead>
+        <tbody id="teamrows"></tbody>
+      </table>
+    </div>
+    <div id="teamusers"></div>
+  </section>
+</main>
+
+<!-- ===================== ACTION BAR ===================== -->
+<div id="bulkbar">
+  <span class="count" id="bulkcount">0 selected</span>
+  <button class="btn sm" onclick="convertSelected()">Convert &amp; export as bundle &rarr;</button>
+  <span class="lbl">or add to</span>
+  <select id="bulkTarget"><option value="">Choose a collection&hellip;</option></select>
+  <button class="btn sm ghost" onclick="addSelected()">Add</button>
+  <button class="btn sm ghost" onclick="openCreate(true)">+ New collection</button>
+  <span class="grow"></span>
+  <button class="btn sm ghost" onclick="clearSelection()">Clear</button>
+</div>
+
+<!-- ===================== MODAL ===================== -->
+<div id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="sheet" id="sheet"></div>
+</div>
+<div id="toast"></div>
+
+<script>
+/* ============================== state ============================== */
+let DOCS = [];
+let COLLECTIONS = [];
+let ME = null;
+let HELP = null;
+let OPEN_COLLECTION = null;   // id when viewing one collection
+let PENDING_ADD = [];         // doc ids queued when creating a collection
+const esc = s => (s ?? '').toString()
+  .replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ============================== boot ============================== */
+async function boot() {
+  try { HELP = await (await fetch('api/help')).json(); renderGuide(); } catch (e) {}
+  await refreshAll();
+}
+
+async function refreshAll() {
+  const r = await fetch('api/documents');
+  if (r.status === 401) { location.href = '/login'; return; }
+  const data = await r.json();
+  DOCS = data.documents || [];
+  ME = data.me || null;
+  const who = document.getElementById('whoami');
+  const out = document.getElementById('signout');
+  if (ME) { who.textContent = `${ME.display_name} (${ME.role})`; out.style.display = ''; }
+  else { who.textContent = ''; out.style.display = 'none'; }
+
+  const rc = await fetch('api/collections');
+  COLLECTIONS = (await rc.json()).collections || [];
+
+  document.getElementById('libcount').textContent = DOCS.length;
+  document.getElementById('colcount').textContent = COLLECTIONS.length;
+  try {
+    const rt = await fetch('api/team');
+    if (rt.ok) {
+      const t = await rt.json();
+      document.getElementById('teamcount').textContent =
+        t.auth_enabled ? (t.users || []).length : 0;
+    }
+  } catch (e) {}
+  renderLibrary();
+  renderCollections();
+  if (OPEN_COLLECTION) await openCollection(OPEN_COLLECTION, true);
+  if (document.getElementById('view-team').style.display !== 'none') renderTeam();
+}
+
+/* ============================== guide ============================== */
+function renderGuide() {
+  document.getElementById('guidebody').innerHTML = `
+    <div class="steps">${HELP.workflow.map(s => `
+      <div class="step">
+        <span class="n">${s.n}</span>
+        <div class="t">${esc(s.title)}</div>
+        <div class="bd">${esc(s.body)}</div>
+      </div>`).join('')}</div>
+    <h2>What the words mean</h2>
+    <table class="ref" style="width:100%">${HELP.glossary.map(g => `
+      <tr><td style="width:190px"><b>${esc(g.term)}</b></td><td>${esc(g.help)}</td></tr>`).join('')}
+    </table>
+    <h2>The labels you will see</h2>
+    <table class="ref" style="width:100%">${HELP.badges.map(b => `
+      <tr><td style="width:190px"><span class="pill p-${
+        b.tone === 'amber' ? 'ocr' : b.tone === 'red' ? 'no' : b.tone === 'purple' ? 'dup' : 'emp'
+      }">${esc(b.badge)}</span></td><td>${esc(b.help)}</td></tr>`).join('')}
+    </table>
+    <h3>Tips</h3>
+    <ul style="margin:4px 0 0;padding-left:20px;font-size:12.5px;color:#344054">
+      ${HELP.tips.map(t => `<li>${esc(t)}</li>`).join('')}
+    </ul>`;
+}
+
+function toggleGuide() {
+  const g = document.getElementById('guide');
+  g.open = !g.open;
+  document.getElementById('guidebtn').textContent = g.open ? 'Hide instructions' : 'Instructions';
+  try { localStorage.setItem('aodGuide', g.open ? '1' : '0'); } catch (e) {}
+}
+
+/* ============================== tabs ============================== */
+function showTab(which) {
+  document.getElementById('view-lib').style.display  = which === 'lib'  ? '' : 'none';
+  document.getElementById('view-col').style.display  = which === 'col'  ? '' : 'none';
+  document.getElementById('view-team').style.display = which === 'team' ? '' : 'none';
+  document.getElementById('tab-lib').classList.toggle('on',  which === 'lib');
+  document.getElementById('tab-col').classList.toggle('on',  which === 'col');
+  document.getElementById('tab-team').classList.toggle('on', which === 'team');
+  if (which === 'lib')  renderLibrary();
+  if (which === 'col')  renderCollections();
+  if (which === 'team') renderTeam();
+}
+
+/* ============================== team ============================== */
+async function renderTeam() {
+  const r = await fetch('api/team');
+  if (r.status === 401) { location.href = '/login'; return; }
+  const t = await r.json();
+  document.getElementById('teamcount').textContent = (t.users || []).length;
+
+  document.getElementById('teamnote').innerHTML = t.auth_enabled
+    ? `<div class="panel" style="padding:14px 16px">
+         <b>Shared workspace.</b>
+         <div class="sub" style="margin-top:4px">
+           Every collection is visible to the whole team, so anyone can pick up
+           work someone else started. Each collection and each export records who
+           did it. You are signed in as <b>${esc((t.me || {}).display_name || '')}</b>.
+         </div></div>`
+    : `<div class="panel" style="padding:14px 16px">
+         <b>Sign-in is switched off.</b>
+         <div class="sub" style="margin-top:4px">${esc(t.note || '')}</div></div>`;
+
+  const active = t.active || [];
+  document.getElementById('teamactive').innerHTML = t.auth_enabled
+    ? `<div class="panel" style="padding:14px 16px">
+         <b>Signed in now</b>
+         <div class="sub" style="margin-bottom:8px">Active in the last 30 minutes.</div>
+         ${active.length ? active.map(a => `
+            <span class="tagchip" title="Signed in at ${esc(String(a.signed_in_at).slice(11,16))}">
+              ${esc(a.display_name)}${a.role === 'admin' ? ' (admin)' : ''}</span>`).join('')
+          : '<span class="sub">Nobody else is signed in right now.</span>'}
+       </div>`
+    : '';
+
+  document.getElementById('teamrows').innerHTML = (t.activity || []).map(e => `
+    <tr>
+      <td class="meta">${esc((e.at || '').replace('T', ' ').slice(0, 16))}</td>
+      <td><b>${esc(e.username)}</b></td>
+      <td>${esc(e.label)}${e.detail ? ` <span class="meta">${esc(e.detail)}</span>` : ''}</td>
+      <td class="meta">${esc(e.document || '')}</td>
+    </tr>`).join('') ||
+    `<tr><td colspan="4" class="empty">No activity recorded yet.</td></tr>`;
+
+  document.getElementById('teamusers').innerHTML = (t.users || []).length
+    ? `<div class="panel" style="padding:14px 16px;margin-top:14px">
+         <b>Accounts</b>
+         <div class="sub" style="margin-bottom:8px">Created with
+           <code>python pipeline.py create-user</code>.</div>
+         <table class="ref" style="width:100%">
+           <tr><th>Account</th><th>Name</th><th>Role</th><th>Documents</th><th>Last signed in</th></tr>
+           ${t.users.map(u => `<tr>
+             <td><b>${esc(u.username)}</b></td>
+             <td>${esc(u.display_name)}</td>
+             <td>${esc(u.role)}</td>
+             <td>${u.reviewed}</td>
+             <td class="meta">${esc(u.last_login ? String(u.last_login).replace('T',' ').slice(0,16) : 'never')}</td>
+           </tr>`).join('')}
+         </table>
+       </div>`
+    : '';
+}
+
+/* ============================== library ============================== */
+function collectionsFor(docId) {
+  return COLLECTIONS.filter(c => (c.doc_ids || []).includes(docId));
+}
+
+function renderLibrary() {
+  const f = document.getElementById('filter').value;
+  const q = (document.getElementById('search').value || '').toLowerCase().trim();
+  let list = DOCS;
+  if (f === 'notpdf') list = list.filter(d => d.pdf_status !== 'ok' && d.pdf_status !== 'passthrough');
+  if (f === 'ocr')    list = list.filter(d => d.needs_ocr);
+  if (f === 'tagged') list = list.filter(d => Object.keys(d.tags || {}).length);
+  if (q) {
+    list = list.filter(d => [d.title_guess, d.doc_type, d.doc_date, d.canonical_src,
+                             Object.values(d.tags || {}).join(' ')]
+      .join(' ').toLowerCase().includes(q));
+  }
+
+  document.getElementById('librows').innerHTML = list.map(d => {
+    const conv = d.pdf_status !== 'ok' && d.pdf_status !== 'passthrough';
+    const badges = [
+      d.needs_ocr ? '<span class="pill p-ocr" title="A scan with no readable text. It still exports, but its contents have not been read - open it to check.">OCR NEEDED</span>' : '',
+      conv ? `<span class="pill p-no" title="No converter was available. Use Convert &amp; export to try again; if it still fails it will be listed under Not included rather than silently dropped.">${esc(d.pdf_status).toUpperCase()}</span>` : '',
+      d.dup_count > 1 ? `<span class="pill p-dup" title="${d.dup_count} source files had identical content and were collapsed into this one row.">${d.dup_count} COPIES</span>` : ''
+    ].join(' ');
+    const tags = Object.entries(d.tags || {});
+    const inCols = (d.collection_names || []);
+    return `<tr data-id="${d.id}">
+      <td><input type="checkbox" class="pick" value="${d.id}" onchange="selCount()"></td>
+      <td>
+        <div class="name">${esc(d.title_guess)}</div>
+        <div class="meta">${esc(d.canonical_src)}</div>
+        ${badges}
+      </td>
+      <td class="meta">${esc(d.doc_type)}</td>
+      <td class="meta">${d.doc_date ? esc(d.doc_date) : '&mdash;'}</td>
+      <td class="meta">${d.page_count ?? '?'}</td>
+      <td class="meta">${conv ? 'needs converting' : 'PDF ready'}</td>
+      <td>
+        ${tags.map(([k, v]) => `<span class="tagchip">${esc(k)}: ${esc(v)}</span>`).join('') || '<span class="meta">&mdash;</span>'}
+        <div style="margin-top:4px">
+          <input type="text" placeholder="+ add a tag" style="font-size:11px;padding:3px 6px"
+                 onkeydown="if(event.key==='Enter')addTag(${d.id}, this)">
+        </div>
+      </td>
+      <td class="meta">${inCols.length
+        ? inCols.map(n => `<span class="tagchip">${esc(n)}</span>`).join('')
+        : '&mdash;'}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="8" class="empty">
+      Nothing matches. ${f !== 'all' ? 'Try &ldquo;All documents&rdquo;.' : 'Drop files into the intake folder and run the pipeline.'}
+    </td></tr>`;
+
+  const total = DOCS.length, ready = DOCS.filter(d => !d.needs_ocr && d.pdf_status === 'ok' || d.pdf_status === 'passthrough').length;
+  const ocr = DOCS.filter(d => d.needs_ocr).length;
+  document.getElementById('stat').textContent =
+    `${total} documents \u00b7 ${ready} PDF-ready \u00b7 ${ocr} need OCR \u00b7 ${COLLECTIONS.length} collections`;
+  selCount();
+}
+
+async function addTag(docId, input) {
+  const raw = (input.value || '').trim();
+  if (!raw) return;
+  const [key, ...rest] = raw.split(':');
+  const value = rest.join(':').trim();
+  await fetch('api/collections/action', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'tag', collection_id: 0, doc_id: docId,
+                          key: key.trim(), value: value || 'yes'})
+  });
+  input.value = '';
+  await refreshAll();
+  toast('Tag saved');
+}
+
+/* ============================== collections ============================== */
+function renderCollections() {
+  // Do not fight the Team tab for the screen.
+  if (document.getElementById('view-col').style.display === 'none') return;
+  if (OPEN_COLLECTION) return;
+  const el = document.getElementById('collist');
+  document.getElementById('codetail').style.display = 'none';
+  el.style.display = '';
+  if (!COLLECTIONS.length) {
+    el.innerHTML = `<div class="panel" style="padding:22px;grid-column:1/-1">
+      <b>No collections yet.</b>
+      <div class="sub" style="margin-top:4px">
+        Tick documents in the <a href="#" onclick="showTab('lib');return false">Library</a>,
+        then use <b>+ New collection</b> on the black bar to name your bundle.
+      </div></div>`;
+    return;
+  }
+  el.innerHTML = COLLECTIONS.map(c => {
+    const warn = (c.not_converted || 0) + (c.needs_ocr || 0);
+    return `<div class="ccard" onclick="openCollection(${c.id})">
+      <div class="ct">${esc(c.name)}</div>
+      <div class="cm">${esc(c.description || 'No description')}</div>
+      <div class="cm" style="margin-top:6px">Started by ${esc(c.created_by || 'unknown')}</div>
+      <div class="stats">
+        <span><b>${c.item_count}</b> documents</span>
+        <span><b>${c.page_total}</b> pages</span>
+        ${c.needs_ocr ? `<span class="pill p-ocr">${c.needs_ocr} OCR</span>` : ''}
+        ${c.not_converted ? `<span class="pill p-no">${c.not_converted} not PDF</span>` : ''}
+        ${c.exported_at ? `<span class="pill p-ok">exported</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function openCollection(id, silent) {
+  OPEN_COLLECTION = id;
+  const r = await fetch('api/collections/' + id);
+  if (!r.ok) { OPEN_COLLECTION = null; renderCollections(); return; }
+  const data = await r.json();
+  const c = data.collection, items = data.items || [];
+  document.getElementById('collist').style.display = 'none';
+  const detail = document.getElementById('codetail');
+  detail.style.display = '';
+
+  const pages = items.reduce((s, d) => s + (d.page_count || 0), 0);
+  const ocr = items.filter(d => d.needs_ocr).length;
+  const notpdf = items.filter(d => d.pdf_status !== 'ok' && d.pdf_status !== 'passthrough').length;
+
+  detail.innerHTML = `
+    <div class="panel" style="padding:14px 16px">
+      <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+        <div class="grow">
+          <h2 style="margin:0">${esc(c.name)}</h2>
+          <div class="sub">${esc(c.description || 'No description')} &middot;
+            started by ${esc(c.created_by || 'unknown')}</div>
+          <div class="stats" style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px">
+            <span><b>${items.length}</b> documents</span>
+            <span><b>${pages}</b> pages</span>
+            ${ocr ? `<span class="pill p-ocr">${ocr} need OCR</span>` : ''}
+            ${notpdf ? `<span class="pill p-no">${notpdf} not PDF yet</span>` : ''}
+            ${c.exported_at ? `<span class="pill p-ok">last exported ${esc(String(c.exported_at).slice(0,16))}</span>` : ''}
+          </div>
+        </div>
+        <div class="hbtns">
+          <button class="btn sec" onclick="renameCollection(${c.id})">Rename</button>
+          <button class="btn sec" onclick="describeCollection(${c.id})">Description</button>
+          <button class="btn sec" onclick="addMore(${c.id})">Add documents</button>
+          <button class="btn primary" onclick="exportCollection(${c.id})">
+            Convert &amp; export bundle</button>
+          <button class="btn danger" onclick="deleteCollection(${c.id})">Delete</button>
+          <button class="btn sec" onclick="closeCollection()">&larr; All collections</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th style="width:52px">Order</th>
+          <th style="width:30%">Document</th>
+          <th style="width:9%">Type</th>
+          <th style="width:9%">Date</th>
+          <th style="width:6%">Pages</th>
+          <th style="width:26%">Name in this bundle</th>
+          <th style="width:14%"></th>
+        </tr></thead>
+        <tbody>${items.map((d, i) => `
+          <tr>
+            <td>
+              <button class="btn sec sm" onclick="moveItem(${c.id}, ${d.id}, -1)"
+                      ${i === 0 ? 'disabled' : ''} title="Move up">&uarr;</button>
+              <button class="btn sec sm" onclick="moveItem(${c.id}, ${d.id}, 1)"
+                      ${i === items.length - 1 ? 'disabled' : ''} title="Move down">&darr;</button>
+            </td>
+            <td>
+              <div class="name">${esc(d.title_guess)}</div>
+              <div class="meta">${esc(d.canonical_src)}</div>
+              ${d.needs_ocr ? '<span class="pill p-ocr">OCR NEEDED</span>' : ''}
+            </td>
+            <td class="meta">${esc(d.doc_type)}</td>
+            <td class="meta">${d.doc_date ? esc(d.doc_date) : '&mdash;'}</td>
+            <td class="meta">${d.page_count ?? '?'}</td>
+            <td><input type="text" value="${esc(d.display_name)}"
+                       data-version="${d.version || 1}"
+                       placeholder="${esc(d.title_guess)}"
+                       onchange="nameItem(${c.id}, ${d.id}, this.value, this)"></td>
+            <td><button class="btn danger sm" onclick="removeItem(${c.id}, ${d.id})">Remove</button></td>
+          </tr>`).join('') || `<tr><td colspan="7" class="empty">
+            This collection is empty. Go to the Library, tick documents, then use
+            <b>Add to</b> on the black bar.</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+  if (!silent) window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+function closeCollection() { OPEN_COLLECTION = null; renderCollections(); }
+
+/* ============================== selection ============================== */
+function selectedIds() {
+  return [...document.querySelectorAll('.pick:checked')].map(c => +c.value);
+}
+function clearSelection() {
+  document.querySelectorAll('.pick').forEach(c => c.checked = false);
+  const all = document.getElementById('all'); if (all) all.checked = false;
+  selCount();
+}
+function toggleAll(cb) {
+  document.querySelectorAll('.pick').forEach(c => {
+    if (c.closest('tr').offsetParent !== null) c.checked = cb.checked;
+  });
+  selCount();
+}
+function selCount() {
+  const ids = selectedIds();
+  const bar = document.getElementById('bulkbar');
+  document.getElementById('bulkcount').textContent =
+    `${ids.length} selected`;
+  bar.classList.toggle('on', ids.length > 0);
+  const sel = document.getElementById('bulkTarget');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">Choose a collection&hellip;</option>' +
+    COLLECTIONS.map(c => `<option value="${c.id}">${esc(c.name)} (${c.item_count})</option>`).join('');
+  sel.value = prev;
+}
+
+/* ============================== actions ============================== */
+async function post(path, payload) {
+  const r = await fetch(path, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  if (r.status === 401) { location.href = '/login'; return {}; }
+  return await r.json();
+}
+
+async function convertSelected() {
+  const ids = selectedIds();
+  if (!ids.length) return;
+  openCreate(false, ids);
+}
+
+async function addSelected() {
+  const ids = selectedIds();
+  const cid = document.getElementById('bulkTarget').value;
+  if (!ids.length) return;
+  if (!cid) { toast('Choose a collection on the black bar first'); return; }
+  const out = await post('api/collections/action',
+    {action: 'add', collection_id: +cid, doc_ids: ids});
+  if (out.error) { toast(out.error); return; }
+  clearSelection();
+  await refreshAll();
+  const c = COLLECTIONS.find(x => x.id === +cid);
+  toast(`Added ${ids.length} document(s) to ${c ? c.name : 'the collection'}`);
+}
+
+async function addMore(cid) { showTab('lib'); toast('Tick documents, then use Add to on the black bar'); }
+async function moveItem(cid, docId, dir) {
+  await post('api/collections/action', {action: 'move', collection_id: cid, doc_id: docId, direction: dir});
+  await openCollection(cid, true);
+}
+async function nameItem(cid, docId, name, input) {
+  const version = input ? +(input.dataset.version || 1) : undefined;
+  const out = await post('api/collections/action',
+    {action: 'name_item', collection_id: cid, doc_id: docId,
+     display_name: name, expected_version: version});
+  if (out.conflict) {
+    const cur = (out.current || {}).current_value || '';
+    if (confirm('Someone else changed this name while you were typing.\n\n' +
+        `Their version:  "${cur}"\nYour version:  "${name}"\n\n` +
+        'Press OK to overwrite theirs, or Cancel to keep theirs.')) {
+      await post('api/collections/action',
+        {action: 'name_item', collection_id: cid, doc_id: docId, display_name: name});
+      await openCollection(cid, true);
+      toast('Name saved (overwrote the other change)');
+    } else {
+      await openCollection(cid, true);
+      toast('Kept the other person\'s version');
+    }
+    return;
+  }
+  if (out.error) { toast(out.error); return; }
+  await openCollection(cid, true);
+  toast('Name saved');
+}
+async function removeItem(cid, docId) {
+  await post('api/collections/action', {action: 'remove', collection_id: cid, doc_ids: [docId]});
+  await refreshAll();
+  toast('Removed from collection');
+}
+
+/* ============================== modal ============================== */
+function closeModal() { document.getElementById('modal').classList.remove('on'); }
+
+function openCreate(fromSelection, ids) {
+  const chosen = ids || selectedIds();
+  PENDING_ADD = chosen;
+  const byCollection = COLLECTIONS.length > 0;
+  document.getElementById('sheet').innerHTML = `
+    <h2>New collection</h2>
+    <div class="sub">Name the bundle the way you want the folder to appear. This name
+      becomes the folder and the cover document.</div>
+    <label for="cname">Collection name</label>
+    <input id="cname" placeholder="e.g. Harbourview Exhibit Bundle - Volume 1" autofocus>
+    <label for="cdesc">Description <span class="sub">(optional)</span></label>
+    <input id="cdesc" placeholder="e.g. Trial bundle, volume 1">
+    <div class="sub" style="margin-top:12px">
+      ${PENDING_ADD.length
+        ? `<b>${PENDING_ADD.length}</b> selected document(s) will be added and converted.`
+        : 'No documents selected yet. You can add them from the Library afterwards.'}
+    </div>
+    <div id="cerr"></div>
+    <div class="actions">
+      <button class="btn sec" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" id="cgo" onclick="doCreate()">
+        ${PENDING_ADD.length ? 'Create &amp; convert' : 'Create'}</button>
+    </div>`;
+  document.getElementById('modal').classList.add('on');
+  setTimeout(() => document.getElementById('cname').focus(), 50);
+}
+
+async function doCreate() {
+  const name = document.getElementById('cname').value.trim();
+  const description = document.getElementById('cdesc').value.trim();
+  const err = document.getElementById('cerr');
+  if (!name) { err.innerHTML = '<div class="err">Give the collection a name.</div>'; return; }
+
+  const go = document.getElementById('cgo');
+  go.disabled = true;
+  go.innerHTML = '<span class="spinner"></span> Working&hellip;';
+
+  const out = await post('api/collections/create', {name, description});
+  if (out.error) {
+    err.innerHTML = `<div class="err">${esc(out.error)}</div>`;
+    go.disabled = false; go.textContent = 'Create';
+    return;
+  }
+  const cid = out.collection_id;
+  if (PENDING_ADD.length) {
+    await post('api/collections/action', {action: 'add', collection_id: cid, doc_ids: PENDING_ADD});
+  }
+  closeModal();
+  clearSelection();
+  await refreshAll();
+
+  if (PENDING_ADD.length) {
+    await exportCollection(cid, name);
+  } else {
+    showTab('col');
+    await openCollection(cid);
+  }
+  PENDING_ADD = [];
+}
+
+async function renameCollection(cid) {
+  const c = COLLECTIONS.find(x => x.id === cid);
+  const name = await promptName(c ? c.name : '');
+  if (name === null) return;
+  const out = await post('api/collections/action',
+    {action: 'rename', collection_id: cid, name, expected_version: c ? c.version : undefined});
+  if (out.conflict) {
+    toast('Someone else changed this collection - reloading their version');
+    await refreshAll();
+    return;
+  }
+  if (out.error) { toast(out.error); return; }
+  await refreshAll();
+  toast('Renamed');
+}
+
+function promptName(current) {
+  // A small inline modal rather than window.prompt, for consistency with the rest.
+  return new Promise(resolve => {
+    document.getElementById('sheet').innerHTML = `
+      <h2>Rename collection</h2>
+      <div class="sub">This renames the folder and the cover document on next export.</div>
+      <label for="rname">Name</label>
+      <input id="rname" value="${esc(current)}">
+      <div class="actions">
+        <button class="btn sec" id="rcancel">Cancel</button>
+        <button class="btn primary" id="rok">Save</button>
+      </div>`;
+    document.getElementById('modal').classList.add('on');
+    const done = v => { closeModal(); resolve(v); };
+    document.getElementById('rcancel').onclick = () => done(null);
+    document.getElementById('rok').onclick = () =>
+      done(document.getElementById('rname').value.trim());
+    setTimeout(() => document.getElementById('rname').focus(), 50);
+  });
+}
+
+async function describeCollection(cid) {
+  const c = COLLECTIONS.find(x => x.id === cid);
+  const d = await promptText('Collection description', c ? c.description : '');
+  if (d === null) return;
+  const out = await post('api/collections/action',
+    {action: 'describe', collection_id: cid, description: d,
+     expected_version: c ? c.version : undefined});
+  if (out.conflict) {
+    toast('Someone else edited this collection - reloading their version');
+    await refreshAll();
+    return;
+  }
+  if (out.error) { toast(out.error); return; }
+  await refreshAll();
+  toast('Description saved');
+}
+
+function promptText(label, current) {
+  return new Promise(resolve => {
+    document.getElementById('sheet').innerHTML = `
+      <h2>${esc(label)}</h2>
+      <label for="ptext">Description</label>
+      <input id="ptext" value="${esc(current)}">
+      <div class="actions">
+        <button class="btn sec" id="pcancel">Cancel</button>
+        <button class="btn primary" id="pok">Save</button>
+      </div>`;
+    document.getElementById('modal').classList.add('on');
+    const done = v => { closeModal(); resolve(v); };
+    document.getElementById('pcancel').onclick = () => done(null);
+    document.getElementById('pok').onclick = () => done(document.getElementById('ptext').value.trim());
+    setTimeout(() => document.getElementById('ptext').focus(), 50);
+  });
+}
+
+async function deleteCollection(cid) {
+  const c = COLLECTIONS.find(x => x.id === cid);
+  if (!confirm(`Delete the collection "${c ? c.name : cid}"?\n\n` +
+      'The documents stay in the Library and the exported bundle on disk is not removed. ' +
+      'Only the collection and its ordering are lost.')) return;
+  await post('api/collections/action', {action: 'delete', collection_id: cid});
+  closeCollection();
+  await refreshAll();
+  toast('Collection deleted');
+}
+
+/* ============================== export ============================== */
+async function exportCollection(cid, nameHint) {
+  showTab('col');
+  const name = nameHint || (COLLECTIONS.find(x => x.id === cid) || {}).name || 'collection';
+  document.getElementById('result').innerHTML =
+    `<div class="result"><span class="spinner"></span> Converting and exporting
+     <b>${esc(name)}</b>&hellip; this can take a moment for large bundles.</div>`;
+
+  const out = await post('api/collections/export', {collection_id: cid});
+  if (out.error) {
+    document.getElementById('result').innerHTML =
+      `<div class="result warn"><b>Could not export.</b><div style="margin-top:5px">${esc(out.error)}</div></div>`;
+    return;
+  }
+  await refreshAll();
+  await openCollection(cid, true);
+
+  const skipped = out.skipped || [];
+  document.getElementById('result').innerHTML = `
+    <div class="result ${skipped.length ? 'warn' : 'ok'}">
+      <b>${skipped.length ? 'Bundle exported with exclusions' : 'Bundle exported'}:</b>
+      ${out.exported} document(s), ${out.pages} page(s)
+      ${out.ocr_flagged ? `&middot; ${out.ocr_flagged} flagged as needing OCR` : ''}
+      ${skipped.length ? `&middot; <b>${skipped.length} not included</b>` : ''}.
+      <div class="sub" style="margin-top:6px">
+        Import the <code>PDFs</code> folder into Zibbit. The numbered files are
+        already in the order shown.
+        <b>${esc(out.cover_doc || 'The cover document')}</b> is a readable index for
+        your own reference &mdash; Zibbit does not need it.
+      </div>
+      <div class="path">${esc(out.bundle)}</div>
+      ${skipped.length ? `
+        <div style="margin-top:10px">
+          <b>Not included</b> &mdash; listed so the gap is deliberate:
+          <ul style="margin:5px 0 0;padding-left:20px">
+            ${skipped.map(s => `<li>${esc(s.title || s.source_file)} &mdash; ${esc(s.reason)}</li>`).join('')}
+          </ul>
+        </div>` : ''}
+    </div>`;
+  toast(out.exported + ' document(s) exported');
+}
+
+/* ============================== misc ============================== */
+let tt;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('on');
+  clearTimeout(tt); tt = setTimeout(() => t.classList.remove('on'), 2600);
+}
+
+document.getElementById('filter').addEventListener('change', renderLibrary);
+document.getElementById('bulkTarget').addEventListener('change', () => {});
+try { if (localStorage.getItem('aodGuide') === '0') toggleGuide(); } catch (e) {}
+boot();
+</script>
+</body>
+</html>

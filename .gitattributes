@@ -1,0 +1,24 @@
+# Normalise line endings in the repository to LF.
+#
+# Without this, Git on Windows rewrites text files to CRLF on checkout, which
+# shows up as spurious diffs and can break the Linux CI job and the Docker build.
+# Shell scripts and Dockerfiles must be LF or they fail at run time.
+
+* text=auto eol=lf
+
+# Explicit, so a Windows checkout cannot convert them.
+*.sh    text eol=lf
+Dockerfile text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# Binary - never touch these.
+*.pdf   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.docx  binary
+*.xlsx  binary
+*.zip   binary
+*.sqlite3 binary
+*.ico   binary
