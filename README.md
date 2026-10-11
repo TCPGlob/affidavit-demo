@@ -72,6 +72,7 @@ Double-click one of these:
 | File | What it does |
 |---|---|
 | **`start-windows.bat`** | Runs it for real. Each person gets their own sign-in. |
+| **`share-windows.bat`** | Same, but colleagues on other computers can connect. |
 | **`demo-windows.bat`** | Sample documents, no sign-in, for showing a client. |
 
 The first run opens a **Welcome** page in your browser where you create your own

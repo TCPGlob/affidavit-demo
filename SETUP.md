@@ -18,7 +18,8 @@ browser.
 
 | Double-click this | What happens |
 |---|---|
-| **`start-windows.bat`** | Runs it properly. Each person gets their own sign-in. |
+| **`start-windows.bat`** | Runs it properly. Each person gets their own sign-in. Just you. |
+| **`share-windows.bat`** | Same, but colleagues on other computers can connect. Prints the address to send them. |
 | **`demo-windows.bat`** | Runs it with sample documents and no sign-in, for showing someone. |
 
 The first time you run `start-windows.bat`:
@@ -62,13 +63,8 @@ create-user …`) if you prefer, but nothing requires it.
 By default the app is reachable **only from the computer it runs on**. That is the
 safe default.
 
-There is a command that starts it for sharing and prints the address to hand out:
-
-```
-python pipeline.py share
-```
-
-That prints something like:
+To let colleagues connect, **double-click `share-windows.bat`**. It prints the
+address to hand out:
 
 ```
 Same office / same wifi    http://10.33.38.26:8765/
@@ -77,9 +73,18 @@ Same office / same wifi    http://10.33.38.26:8765/
 Give colleagues that address. They need nothing installed — just a browser. You
 keep the black window open; it is the server.
 
+The same thing from a terminal, if you prefer:
+
+```
+python pipeline.py share
+```
+
 **If a colleague cannot connect, it is almost always Windows Firewall.** Re-run
 and choose **Allow** when Windows asks, or allow Python on *Private* networks in
 Windows Firewall settings.
+
+On macOS or Linux, run `./start-mac-linux.command` and add `--host 0.0.0.0` to
+the last line.
 
 ---
 
@@ -161,10 +166,10 @@ only if a private network is impossible.
 
 | Situation | What to do |
 |---|---|
-| Just me, this laptop | `start-windows.bat` |
-| Show a client | `demo-windows.bat` |
-| Colleagues in the same office | `python pipeline.py share` |
-| A colleague at home | Install Tailscale on both, then `share` |
+| Just me, this laptop | Double-click `start-windows.bat` |
+| Show a client | Double-click `demo-windows.bat` |
+| Colleagues in the same office | Double-click `share-windows.bat` |
+| A colleague at home | Install Tailscale on both, then `share-windows.bat` |
 | A firm running it properly | Always-on machine + Tailscale + `--users` |
 | Must be a public web address | HTTPS in front, plus `--secure-cookie` |
 
