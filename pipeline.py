@@ -116,6 +116,27 @@ def cmd_review(args) -> int:
                 print("  Running the pipeline over them...")
                 pipeline.run(conn, cfg, fresh=False, skip_ingest=False)
             print()
+        elif conn.execute("SELECT COUNT(*) c FROM documents").fetchone()["c"] == 0:
+            # Nothing has been processed yet. Rather than dropping someone into
+            # an empty console with no clue what to do, prepare sample documents
+            # so there is something to look at and learn from.
+            print("=" * 66)
+            print("  FIRST RUN - preparing sample documents")
+            print("=" * 66)
+            print("  Nothing has been processed yet, so sample documents are being")
+            print("  created to give you something to work with.")
+            print("  Replace them with real documents at any time by clearing the")
+            print(f"  intake folder: {cfg.source_dir}\n")
+            try:
+                fixtures.generate(cfg.source_dir, clean=True)
+                pipeline.run(conn, cfg, fresh=False, skip_ingest=False)
+                print("  Sample documents ready.\n")
+            except Exception as exc:  # noqa: BLE001
+                print(f"  Could not prepare samples ({exc}).")
+                print("  The console will still start; add documents and run:")
+                print("    python pipeline.py demo")
+                print("    python pipeline.py run\n")
+
         review.serve(
             conn, cfg,
             port=args.port,
@@ -363,10 +384,13 @@ def cmd_reconcile(args) -> int:
     cfg = load_config(root)
     conn = _open_db(cfg)
     try:
-        summary = reconcile.reconcile(conn, cfg)
+        reconcile.reconcile(conn, cfg)
     finally:
         conn.close()
-    return 1 if summary["problems"] else 0
+    # Exit 0 even when problems are listed. The report is the deliverable, and
+    # "a .docx could not be converted" is something to read, not a failed run --
+    # returning non-zero here made a documented state look like a crash.
+    return 0
 
 
 def cmd_status(args) -> int:

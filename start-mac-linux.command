@@ -35,7 +35,7 @@ echo "  Starting up. Your browser will open in a moment."
 echo "  Leave this window open while you work."
 echo
 
-"$PY" pipeline.py review --users
+"$PY" -u pipeline.py review --users
 
 echo
 read -r -p "The console has stopped. Press Enter to close..." _

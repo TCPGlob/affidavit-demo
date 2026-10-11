@@ -39,7 +39,7 @@ echo   Checking the program's requirements...
 echo   Preparing sample documents and starting up...
 echo.
 
-%PY% pipeline.py review --demo
+%PY% -u pipeline.py review --demo
 
 echo.
 echo   The demo has stopped.

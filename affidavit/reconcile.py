@@ -49,10 +49,13 @@ def reconcile(conn, cfg: Config) -> dict:
                 problems.append(
                     f"[CONVERSION] {r['src_relpath']}: {status} - {r['status_detail'] or 'no detail'}"
                 )
+            # Deliberately NOT reported as a problem: a document with no
+            # schedule is the normal state in the collection workflow, where
+            # documents are gathered into named bundles rather than classified.
+            # Reporting it per document buried the real problems under one
+            # alarming line per file.
             if r["schedule"] in (None, ""):
-                problems.append(
-                    f"[UNCLASSIFIED] {r['src_relpath']}: no schedule assigned - blocks filing"
-                )
+                counts["not_in_a_bundle_yet"] += 1
         elif role == "duplicate":
             status = r["pdf_status"] or "pending"
             counts[f"convert:{status}"] += 1
@@ -199,6 +202,7 @@ def _write_markdown(cfg: Config, trace: list[dict], summary: dict) -> None:
         f"| Scans with no readable text | {summary.get('ocr_counts', {}).get('no_text_found', 0)} |",
         f"| Characters recovered by OCR | {summary.get('ocr_chars', 0):,} |",
         f"| Unsupported formats | {summary['unsupported']} |",
+        f"| Not yet placed in a bundle | {summary['counts'].get('not_in_a_bundle_yet', 0)} |",
         f"| **Problems requiring attention** | **{len(summary['problems'])}** |",
         "",
     ]
@@ -240,6 +244,8 @@ def _print_summary(summary: dict) -> None:
     print(f"  scans read by OCR     {summary.get('ocr_counts', {}).get('ok', 0)}"
           f"  ({summary.get('ocr_chars', 0):,} characters)")
     print(f"  unsupported           {summary['unsupported']}")
+    print(f"  not in a bundle yet   {summary['counts'].get('not_in_a_bundle_yet', 0)}"
+          "  (normal - collections are created when you need one)")
     problems = summary["problems"]
     if problems:
         print(f"\n  {len(problems)} problem(s) requiring attention:")

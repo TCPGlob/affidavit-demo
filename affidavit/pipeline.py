@@ -46,7 +46,7 @@ def run(conn, cfg: Config, fresh: bool = False, skip_ingest: bool = False,
     tools = {t.name: t for t in detect_toolchain()}
 
     print("=" * 66)
-    print("  AFFIDAVIT OF DOCUMENTS - ASSEMBLY PIPELINE")
+    print("  PREPARING DOCUMENTS")
     print("=" * 66)
     print(f"  source : {cfg.source_dir}")
     print(f"  work   : {cfg.work_dir}")

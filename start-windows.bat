@@ -45,7 +45,10 @@ echo   Leave this window open while you work.
 echo   Press Ctrl+C or close this window when you are finished.
 echo.
 
-%PY% pipeline.py review --users
+REM -u keeps progress messages visible immediately. Without it Python buffers
+REM its output, the window looks frozen while the first run prepares samples,
+REM and people assume it has crashed.
+%PY% -u pipeline.py review --users
 
 echo.
 echo   The console has stopped.
