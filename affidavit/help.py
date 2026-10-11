@@ -33,6 +33,16 @@ WORKFLOW = [
     },
     {
         "n": 3,
+        "title": "Scans are read automatically",
+        "body": (
+            "If any document is a scan or a photo, the pipeline reads the text "
+            "out of it so it can be searched and titled. This happens on this "
+            "machine only. Anything it cannot read is flagged for you to check "
+            "by eye; the original scan is never altered."
+        ),
+    },
+    {
+        "n": 4,
         "title": "You tick the documents you want",
         "body": (
             "In the Library, tick the documents that belong together. Use the "
@@ -41,7 +51,7 @@ WORKFLOW = [
         ),
     },
     {
-        "n": 4,
+        "n": 5,
         "title": "You name the collection",
         "body": (
             "Choose '+ New collection' and give it the name you want the folder "
@@ -50,7 +60,7 @@ WORKFLOW = [
         ),
     },
     {
-        "n": 5,
+        "n": 6,
         "title": "Convert and export",
         "body": (
             "Only the documents you ticked are converted. You get a folder "
@@ -60,7 +70,7 @@ WORKFLOW = [
         ),
     },
     {
-        "n": 6,
+        "n": 7,
         "title": "Import the PDFs into Zibbit",
         "body": (
             "Zibbit is fed PDFs, so the PDFs folder is the finished product -- the "
@@ -142,9 +152,10 @@ GLOSSARY = [
     {
         "term": "OCR",
         "help": (
-            "Optical Character Recognition: reading text out of a scan. Not "
-            "installed yet, so a scanned document still exports but its contents "
-            "have not been read. Open it yourself to check it."
+            "Optical Character Recognition: reading the text out of a scan or "
+            "photo. It runs on this machine, so scanned documents are never sent "
+            "anywhere. The bundle still exports the original scan; a separate "
+            "searchable copy is used for titles, dates and search."
         ),
     },
 ]
@@ -184,6 +195,8 @@ TIPS = [
     "Leave the 'Name in this bundle' box empty to use the document's own title.",
     "A collection can be exported as many times as you like; each export rebuilds the folder from scratch.",
     "Your tags are yours and are preserved when the pipeline re-reads the documents.",
+    "If a scan was read badly, 'Re-read all' on the Library tab tries again at full quality.",
+    "Documents edited at the same time by two people are never silently overwritten -- you are asked which version to keep.",
 ]
 
 # The console no longer assigns legal schedules, so these are not offered.

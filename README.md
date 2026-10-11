@@ -177,6 +177,83 @@ Written for someone who has never seen this pipeline:
 
 ---
 
+## OCR — reading scans, locally
+
+Scanned documents and phone photos have no text layer, so nothing can search
+them or work out their date. OCR fixes that.
+
+**It runs on this machine.** Tesseract is a local program; there are no cloud
+calls and no API keys, so scanned client material never leaves the computer.
+
+### Installing it
+
+```bash
+winget install UB-Mannheim.TesseractOCR     # Windows
+sudo apt install tesseract-ocr              # Debian/Ubuntu
+brew install tesseract                      # macOS
+```
+
+The pipeline finds it even when the installer does not add it to `PATH`. With
+Tesseract absent, everything still runs — scans are exported as images, flagged
+`OCR NEEDED`, and the pipeline tells you what to install.
+
+For French documents, install the extra language data and set it in
+`affidavit.config.json`:
+
+```json
+{ "ocr_lang": "eng+fra" }
+```
+
+Check what is available with `tesseract --list-langs`. A language that is not
+installed falls back to `eng` and says so, rather than silently producing
+nothing.
+
+### Using it
+
+It runs automatically as step 4 of `python pipeline.py run`. To run it on its own,
+or re-read scans at full quality:
+
+```bash
+python pipeline.py ocr              # read anything not yet read
+python pipeline.py ocr --force      # re-read everything, including what succeeded
+python pipeline.py ocr --lang eng+fra --dpi 300 --max-pages 50
+```
+
+The Library tab has the same thing as buttons, with a live count of what is
+unread.
+
+### Two design decisions worth knowing
+
+**OCR never alters the exported document.** A scanned page is evidence, and a
+re-rendered version of it is not the same exhibit. OCR writes a *separate*
+searchable copy to `work/ocr/`, used only for titles, dates and search. The PDFs
+folder in your bundle still contains the original scans.
+
+**OCR recovers metadata, not just text.** Once a scan can be read, its title,
+document type and date are filled in from the recognised text — so a scanned
+invoice stops being an undated blank in the index.
+
+### What to expect
+
+Measured on the sample documents:
+
+| Document | Result |
+|---|---|
+| A clean 300 dpi scan | **96% confidence**, date and type recovered correctly |
+| A low-quality photo of a receipt | 64% confidence, key fields (date, total, receipt no.) still recovered and searchable |
+| A genuinely blank page | `no_text_found` — reported honestly, not invented |
+
+OCR is not perfect, and it depends on the source image. Before relying on a
+scanned document, open it and check the fields OCR filled in. The `OCR NEEDED`
+badge and the reconciliation report both tell you which documents were read
+mechanically.
+
+Date parsing is deliberately lenient about OCR damage: `202404-12` and
+`20240412` are both read as `2024-04-12`, while `20241350` (month 13) is
+correctly rejected so reference numbers never become dates.
+
+---
+
 ## What it does
 
 | Stage | Module | Output |
@@ -249,6 +326,7 @@ Word output has **no** dependency: `docxwriter.py` uses only the standard librar
 
 ```bash
 python collections_test.py   # tick -> name -> export, ordering, tags, HTTP surface
+python ocr_test.py           # engine detection, real OCR, searchability, date parsing
 python smoke_test.py         # console reads and writes, persistence, bad input
 python auth_test.py          # accounts, sessions, attribution, CSRF, audit
 python e2e_test.py           # the legacy affidavit-style export path
@@ -285,8 +363,11 @@ client material cannot leak into version control.
 
 ## Known limitations
 
-- **No OCR yet.** Scans are detected, flagged and exported, but their contents
-  are not read. Wiring in local Tesseract via `ocrmypdf` is the next task.
+- **OCR accuracy depends on the scan.** A clean 300 dpi scan reads well; a poor
+  photo may misread words. Dates and totals are usually recovered; verify
+  anything that matters by opening the original.
+- **OCR reads the first 25 pages by default** (`ocr_max_pages`). Long scanned
+  documents are partially read and the component says so.
 - **SQLite and a single write lock.** Fine for a handful of users. Past roughly
   ten concurrent editors, move to Postgres.
 - **No cloud storage connector.** Files are read from `intake/source` only.

@@ -36,6 +36,7 @@ DECISIONS = {
     14: ("C", "Not a producible document",
          "Image-only scan; original no longer in the plaintiff's possession"),
     6: ("excluded", "", "Placeholder only - converter unavailable, not the real document"),
+    15: ("A", "", "Scanned tax invoice NG-4502, read by OCR"),
 }
 
 
@@ -56,12 +57,17 @@ def main() -> int:
     conn.execute("DELETE FROM decisions")
     conn.commit()
 
-    expected_total = len(DECISIONS)
     actual_total = conn.execute("SELECT COUNT(*) c FROM documents").fetchone()["c"]
-    if actual_total != expected_total:
-        print(f"\nThis test expects {expected_total} documents but the database has "
-              f"{actual_total}.")
+    if actual_total == 0:
+        print("\nNo documents in the database.")
         print("Run:  python pipeline.py demo && python pipeline.py run --fresh")
+        conn.close()
+        return 1
+    undecided = sorted({r["id"] for r in conn.execute("SELECT id FROM documents")}
+                       - set(DECISIONS))
+    if undecided:
+        print(f"\n{len(undecided)} document(s) have no decision in this test: {undecided}")
+        print("Add them to DECISIONS so every document is covered.")
         conn.close()
         return 1
 
@@ -87,6 +93,10 @@ def main() -> int:
     result = assemble.assemble(conn, cfg, stamp=False)
     counts = result["counts"]
     check("Schedule A populated", counts["A"] > 0, f"A={counts['A']}")
+    check("every document is accounted for in a schedule or excluded",
+          counts["A"] + counts["B"] + counts["C"] + counts["excluded"] == actual_total,
+          f"A+B+C+excluded={counts['A'] + counts['B'] + counts['C'] + counts['excluded']}"
+          f" total={actual_total}")
     check("Schedule B populated", counts["B"] == 2, f"B={counts['B']}")
     check("Schedule C populated", counts["C"] == 1, f"C={counts['C']}")
     check("nothing left unclassified", counts["unclassified"] == 0,
@@ -187,8 +197,10 @@ def main() -> int:
 
     # ---- reconcile -------------------------------------------------------
     summary = reconcile.reconcile(conn, cfg)
-    check("reconciliation counted every source file", summary["source_files"] == 17,
-          f"source_files={summary['source_files']}")
+    on_disk = sum(1 for _ in cfg.source_dir.rglob("*") if _.is_file())
+    check("reconciliation counted every source file",
+          summary["source_files"] == on_disk,
+          f"counted={summary['source_files']} on_disk={on_disk}")
     check("reconciliation found no unclassified documents",
           not any("UNCLASSIFIED" in p for p in summary["problems"]))
     check("reconciliation report written",

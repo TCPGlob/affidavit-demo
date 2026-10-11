@@ -36,6 +36,14 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libreoffice-writer libreoffice-calc tesseract-ocr
 
+      - name: Install LibreOffice and Tesseract (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install --no-progress -y tesseract
+          # LibreOffice is a large install; it is optional, and the pipeline is
+          # asserted to degrade gracefully without it, so it is skipped here.
+
       - name: Create the sample intake
         run: python pipeline.py demo
 
@@ -44,6 +52,9 @@ jobs:
 
       - name: Collection workflow tests
         run: python collections_test.py
+
+      - name: OCR tests
+        run: python ocr_test.py
 
       - name: Console tests
         run: python smoke_test.py

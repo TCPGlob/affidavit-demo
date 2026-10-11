@@ -48,6 +48,14 @@ class Config:
     bates_numbering: bool = False
     bates_prefix: str = "DOC"
 
+    # --- OCR (optional; requires Tesseract installed locally) ---
+    # Language data must be installed alongside Tesseract. For Canadian matters
+    # "eng+fra" is often wanted; check with `tesseract --list-langs`.
+    ocr_lang: str = "eng"
+    ocr_dpi: int = 200
+    ocr_max_pages: int = 25
+    ocr_enabled: bool = True
+
     # Overridable so a test can work against a throwaway database.
     db_path: Path = Path("work/pipeline.sqlite3")
 

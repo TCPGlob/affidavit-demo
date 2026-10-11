@@ -39,7 +39,8 @@ def parties_from_config(cfg: Config) -> list[str]:
     return [cfg.proceeding_between_plaintiff, cfg.proceeding_between_defendant]
 
 
-def run(conn, cfg: Config, fresh: bool = False, skip_ingest: bool = False) -> dict:
+def run(conn, cfg: Config, fresh: bool = False, skip_ingest: bool = False,
+        ocr: bool = True, ocr_force: bool = False) -> dict:
     cfg.ensure_dirs()
     db.init(conn)
     tools = {t.name: t for t in detect_toolchain()}
@@ -54,7 +55,7 @@ def run(conn, cfg: Config, fresh: bool = False, skip_ingest: bool = False) -> di
 
     # ---------------------------------------------------------- 1. ingest
     if not skip_ingest:
-        print("Step 1/3  Ingesting, fingerprinting and grouping")
+        print("Step 1/4  Ingesting, fingerprinting and grouping")
         pruned = ingest_module.prune_missing(conn, cfg)
         if pruned["documents_removed"]:
             print(f"          {pruned['documents_removed']} document(s) removed from state "
@@ -81,7 +82,7 @@ def run(conn, cfg: Config, fresh: bool = False, skip_ingest: bool = False) -> di
         print()
 
     # ---------------------------------------------------------- 2. convert
-    print("Step 2/3  Converting to PDF")
+    print("Step 2/4  Converting to PDF")
     rows = conn.execute(
         "SELECT * FROM documents ORDER BY id"
     ).fetchall()
@@ -148,7 +149,7 @@ def run(conn, cfg: Config, fresh: bool = False, skip_ingest: bool = False) -> di
     print()
 
     # ---------------------------------------------------------- 3. extract
-    print("Step 3/3  Extracting text and metadata")
+    print("Step 3/4  Extracting text and metadata")
     rows = conn.execute(
         "SELECT * FROM documents WHERE pdf_path IS NOT NULL ORDER BY id"
     ).fetchall()
@@ -198,9 +199,136 @@ def run(conn, cfg: Config, fresh: bool = False, skip_ingest: bool = False) -> di
         print(f"          {ocr_needed} image-only scan(s) require OCR")
     print()
 
+    # ---------------------------------------------------------- 4. OCR
+    ocr_stats = None
+    if cfg.ocr_enabled and ocr:
+        print("Step 4/4  Reading scanned documents (OCR, local only)")
+        ocr_stats = run_ocr_stage(conn, cfg, tools, force=ocr_force)
+        print()
+    else:
+        scans = conn.execute(
+            "SELECT COUNT(*) c FROM documents WHERE needs_ocr=1"
+        ).fetchone()["c"]
+        if scans:
+            print(f"          {scans} scan(s) still need OCR. Run: python pipeline.py ocr")
+            print()
+
     _suggest_privilege(conn)
     _report_metrics(conn, cfg)
-    return {"tools": {k: v.available for k, v in tools.items()}}
+    return {"tools": {k: v.available for k, v in tools.items()}, "ocr": ocr_stats}
+
+
+def run_ocr_stage(conn, cfg: Config, tools: dict, force: bool = False) -> dict:
+    """OCR every document that has no text layer.
+
+    Only runs on scans; documents that already have text are skipped. The
+    searchable copy lands in work/ocr/ and is used for reading and metadata.
+    The exported bundle still carries the original scan.
+    """
+    from . import ocr as ocr_mod
+
+    tool = ocr_mod.find_tesseract()
+    if not tool.available:
+        print("          Tesseract is not installed - skipping OCR.")
+        print("          Install it, then re-run:  python pipeline.py ocr")
+        print("          Windows: winget install UB-Mannheim.TesseractOCR")
+        return {"available": False, "processed": 0, "succeeded": 0, "empty": 0,
+                "failed": 0, "chars": 0}
+
+    lang = ocr_mod.pick_language(tool, cfg.ocr_lang)
+    if lang != cfg.ocr_lang:
+        print(f"          Language '{cfg.ocr_lang}' not installed; using '{lang}'")
+        print(f"          Installed: {', '.join(tool.languages) or 'none reported'}")
+
+    # What counts as "needs reading" differs between the two modes:
+    #   normal - documents with no readable text layer that have not been read
+    #            successfully already
+    #   force  - anything that was ever OCR'd, plus anything still unread
+    if force:
+        where = (
+            "SELECT * FROM documents WHERE pdf_path IS NOT NULL "
+            "AND (ocr_status IS NOT NULL OR needs_ocr=1)"
+        )
+    else:
+        where = (
+            "SELECT * FROM documents WHERE pdf_path IS NOT NULL AND needs_ocr=1 "
+            "AND (ocr_status IS NULL OR ocr_status IN ('failed','no_text_found'))"
+        )
+    rows = conn.execute(where + " ORDER BY id").fetchall()
+
+    if not rows:
+        print("          Nothing to OCR - every document already has a text layer.")
+        return {"available": True, "processed": 0, "succeeded": 0, "empty": 0,
+                "failed": 0, "chars": 0}
+
+    print(f"          {len(rows)} scanned document(s) to read "
+          f"({lang}, {cfg.ocr_dpi} dpi, max {cfg.ocr_max_pages} pages each)")
+
+    stats = {"available": True, "processed": 0, "succeeded": 0, "empty": 0,
+             "failed": 0, "chars": 0}
+    ocr_dir = cfg.work_dir / "ocr"
+    ocr_dir.mkdir(parents=True, exist_ok=True)
+    parties = parties_from_config(cfg)
+
+    for row in rows:
+        pdf = Path(row["pdf_path"])
+        dest = ocr_dir / f"{row['sha256'][:12]}.pdf"
+        res = ocr_mod.ocr_pdf(pdf, dest, tool, lang=lang, dpi=cfg.ocr_dpi,
+                              max_pages=cfg.ocr_max_pages)
+        stats["processed"] += 1
+
+        if res.status == "ok":
+            stats["succeeded"] += 1
+            stats["chars"] += res.text_chars
+        elif res.status == "no_text_found":
+            stats["empty"] += 1
+        else:
+            stats["failed"] += 1
+
+        conn.execute(
+            """UPDATE documents SET ocr_status=?, ocr_path=?, ocr_chars=?,
+                   ocr_confidence=?, ocr_detail=?, ocr_at=?
+               WHERE id=?""",
+            (res.status, str(res.pdf_path) if res.pdf_path else None,
+             res.text_chars, res.mean_confidence, res.detail[:400],
+             db.utcnow(), row["id"]),
+        )
+        conn.commit()
+
+        mark = {"ok": "read", "no_text_found": "no text", "failed": "FAILED"}.get(res.status, res.status)
+        print(f"            [{mark:>8}] {row['canonical_src'][:44]:<46} "
+              f"{res.text_chars:>7,} chars"
+              + (f"  conf {res.mean_confidence}" if res.mean_confidence else ""))
+
+        # Now that the scan can be read, improve its metadata and clear the
+        # "needs OCR" flag.
+        #
+        # Deliberately NOT gated on extract()'s has_text_layer, which uses a
+        # 40-character threshold: a short document (a receipt, a one-line memo)
+        # can OCR perfectly and still fall under it, which previously left
+        # needs_ocr set forever and re-ran OCR on every pass.
+        if res.status == "ok" and res.pdf_path:
+            source_name = Path(row["canonical_src"]).name
+            ex = extract.extract(res.pdf_path, source_name, parties)
+            recovered = len(ex.text) if ex.text.strip() else res.text_chars
+            conn.execute(
+                """UPDATE documents SET
+                     needs_ocr=0, has_text_layer=1, text_chars=?,
+                     title_guess=COALESCE(NULLIF(?,''), title_guess),
+                     doc_type=COALESCE(NULLIF(?,''), doc_type),
+                     doc_date=COALESCE(NULLIF(?,''), doc_date),
+                     date_source=COALESCE(NULLIF(?,''), date_source),
+                     privilege_flags=?, summary=?, text_fingerprint=?
+                   WHERE id=?""",
+                (recovered, ex.title_guess, ex.doc_type, ex.doc_date,
+                 ex.date_source, json.dumps(ex.privilege_flags), ex.summary,
+                 ex.text_fingerprint, row["id"]),
+            )
+            conn.commit()
+
+    print(f"          read {stats['succeeded']}/{stats['processed']} "
+          f"({stats['chars']:,} characters recovered)")
+    return stats
 
 
 def _suggest_privilege(conn) -> None:

@@ -126,6 +126,13 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     ("decisions", "editing_since", "TEXT"),
     ("collections", "version", "INTEGER NOT NULL DEFAULT 1"),
     ("collection_items", "version", "INTEGER NOT NULL DEFAULT 1"),
+    # OCR produces a separate searchable copy; the exported scan is untouched.
+    ("documents", "ocr_path", "TEXT"),
+    ("documents", "ocr_status", "TEXT"),
+    ("documents", "ocr_chars", "INTEGER DEFAULT 0"),
+    ("documents", "ocr_confidence", "REAL"),
+    ("documents", "ocr_detail", "TEXT"),
+    ("documents", "ocr_at", "TEXT"),
 ]
 
 SCHEDULES = ("A", "B", "C")

@@ -149,6 +149,7 @@ DATE_LABEL_RE = re.compile(
 # up front. Scanning the whole document risks picking up a referenced date.
 DATE_NEAR_TOP_RE = re.compile(
     rf"\b(\d{{4}}-\d{{1,2}}-\d{{1,2}}"
+    rf"|\d{{4}}-?\d{{2}}-?\d{{2}}"
     rf"|\d{{1,2}}[/.]\d{{1,2}}[/.]\d{{2,4}}"
     rf"|\d{{1,2}}\s+(?:{_MONTH_ALT})\.?,?\s+\d{{4}}"
     rf"|(?:{_MONTH_ALT})\.?\s+\d{{1,2}},?\s+\d{{4}})\b",
@@ -165,6 +166,12 @@ def parse_date_token(token: str) -> str | None:
     """Turn one matched date string into an ISO date, or None."""
     token = token.strip()
     m = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", token)
+    if m:
+        return _norm_date(int(m[1]), int(m[2]), int(m[3]))
+    # OCR frequently loses a separator: "202404-12" or "20240412". Only accept
+    # an 8-digit run when it parses as a real ISO date, so stray reference
+    # numbers are not silently turned into dates.
+    m = re.fullmatch(r"(\d{4})-?(\d{2})-?(\d{2})", token)
     if m:
         return _norm_date(int(m[1]), int(m[2]), int(m[3]))
     m = re.fullmatch(r"(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})", token)
@@ -300,6 +307,20 @@ def title_from_name(name: str) -> str:
 PLACEHOLDER_MARK = "PLACEHOLDER - NOT THE ORIGINAL DOCUMENT"
 
 
+def has_readable_text(text: str) -> bool:
+    """Is there a usable text layer?
+
+    Word count rather than character count, and a deliberately low bar. A short
+    receipt or a one-line memo is perfectly readable while having few characters;
+    an earlier 40-character threshold classified such documents as "unreadable
+    scans" and sent them to OCR repeatedly.
+    """
+    compact = _WS.sub(" ", text).strip()
+    if len(compact) >= 20:
+        return True
+    return len([w for w in compact.split() if any(c.isalnum() for c in w)]) >= 3
+
+
 def extract(pdf_path: Path, source_name: str, parties: list[str] | None = None) -> Extraction:
     ex = Extraction()
     if not pdf_path or not Path(pdf_path).exists():
@@ -313,9 +334,8 @@ def extract(pdf_path: Path, source_name: str, parties: list[str] | None = None) 
         ex.error = err
         return ex
 
-    stripped = _WS.sub("", text)
     ex.text = text
-    ex.has_text_layer = len(stripped) >= 40
+    ex.has_text_layer = has_readable_text(text)
     ex.needs_ocr = not ex.has_text_layer
 
     # A placeholder generated because a converter was missing must never be

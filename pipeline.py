@@ -81,7 +81,8 @@ def cmd_run(args) -> int:
     conn = _open_db(cfg, reset=args.fresh)
     try:
         result = pipeline.run(
-            conn, cfg, fresh=args.fresh, skip_ingest=args.skip_ingest
+            conn, cfg, fresh=args.fresh, skip_ingest=args.skip_ingest,
+            ocr=not args.no_ocr, ocr_force=args.ocr_force,
         )
         reconcile.reconcile(conn, cfg)
     finally:
@@ -290,6 +291,42 @@ def cmd_bundle(args) -> int:
         conn.close()
 
 
+def cmd_ocr(args) -> int:
+    """Read scanned documents. Safe to re-run."""
+    root = Path(args.root).resolve()
+    cfg = load_config(root)
+    if args.lang:
+        cfg.ocr_lang = args.lang
+    if args.max_pages:
+        cfg.ocr_max_pages = args.max_pages
+    if args.dpi:
+        cfg.ocr_dpi = args.dpi
+    conn = _open_db(cfg)
+    try:
+        print(BANNER)
+        print("  OCR  -  reading scanned documents (local, no cloud)")
+        print(BANNER)
+        stats = pipeline.run_ocr_stage(conn, cfg, {}, force=args.force)
+        print()
+        if not stats["available"]:
+            print("  Install Tesseract, then re-run this command:")
+            print("    winget install UB-Mannheim.TesseractOCR")
+            print("  For French too, install the fra language data and set")
+            print('    "ocr_lang": "eng+fra"   in affidavit.config.json')
+            return 1
+        print(f"  read        {stats['succeeded']}")
+        print(f"  no text     {stats['empty']}")
+        print(f"  failed      {stats['failed']}")
+        print(f"  characters  {stats['chars']:,}")
+        print()
+        print("  Note: the exported bundle still contains the ORIGINAL scans.")
+        print("  The searchable copies live in work/ocr/ and are used only for")
+        print("  reading, titles, dates and search.")
+        return 0
+    finally:
+        conn.close()
+
+
 def cmd_assemble(args) -> int:
     root = Path(args.root).resolve()
     cfg = load_config(root)
@@ -381,9 +418,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--keep", action="store_true", help="do not wipe the existing intake folder")
     s.set_defaults(func=cmd_demo)
 
-    s = sub.add_parser("run", help="ingest, convert, extract, report")
+    s = sub.add_parser("run", help="ingest, convert, extract, read scans")
     s.add_argument("--fresh", action="store_true", help="discard all state and start over")
     s.add_argument("--skip-ingest", action="store_true", help="reuse the existing file inventory")
+    s.add_argument("--no-ocr", action="store_true",
+                   help="skip reading scans (OCR also runs on its own: pipeline.py ocr)")
+    s.add_argument("--ocr-force", action="store_true",
+                   help="re-read scans that were already OCR'd")
     s.set_defaults(func=cmd_run)
 
     s = sub.add_parser("review", help="open the review console")
@@ -433,6 +474,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("collections", help="list bundles and their contents")
     s.set_defaults(func=cmd_collections)
+
+    s = sub.add_parser("ocr", help="read scanned documents (requires Tesseract)")
+    s.add_argument("--force", action="store_true",
+                   help="re-read documents that were already OCR'd")
+    s.add_argument("--lang", default="", help='Tesseract language, e.g. "eng" or "eng+fra"')
+    s.add_argument("--dpi", type=int, default=0, help="render resolution (default 200)")
+    s.add_argument("--max-pages", type=int, default=0,
+                   help="give up after this many pages per document (default 25)")
+    s.set_defaults(func=cmd_ocr)
 
     s = sub.add_parser(
         "bundle",

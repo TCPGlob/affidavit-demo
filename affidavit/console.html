@@ -173,6 +173,7 @@
 
   <!-- ===================== LIBRARY ===================== -->
   <section id="view-lib">
+    <div id="ocrpanel"></div>
     <div class="tablewrap">
       <div class="bar">
         <label class="sub" style="font-weight:400">Show
@@ -304,6 +305,7 @@ async function refreshAll() {
   } catch (e) {}
   renderLibrary();
   renderCollections();
+  loadOcr();
   if (OPEN_COLLECTION) await openCollection(OPEN_COLLECTION, true);
   if (document.getElementById('view-team').style.display !== 'none') renderTeam();
 }
@@ -410,6 +412,99 @@ async function renderTeam() {
          </table>
        </div>`
     : '';
+}
+
+/* ============================== ocr ============================== */
+let OCR = null;
+
+async function loadOcr() {
+  try {
+    const r = await fetch('api/ocr');
+    if (r.ok) { OCR = await r.json(); renderOcr(); }
+  } catch (e) {}
+}
+
+function renderOcr() {
+  const el = document.getElementById('ocrpanel');
+  if (!OCR) { el.innerHTML = ''; return; }
+
+  if (!OCR.engine_available) {
+    el.innerHTML = `
+      <div class="panel" style="padding:13px 16px;border-left:5px solid var(--warn)">
+        <b>Scanned documents cannot be read yet.</b>
+        <div class="sub" style="margin-top:4px">
+          Tesseract (the OCR engine) is not installed on this machine, so scans
+          are exported as images without their contents being read.
+          ${OCR.unread ? `<b>${OCR.unread}</b> document(s) are affected.` : ''}
+        </div>
+        <div class="sub" style="margin-top:6px">
+          To enable it, run <code>winget install UB-Mannheim.TesseractOCR</code>
+          and restart. This is a local install &mdash; nothing is sent anywhere.
+        </div>
+      </div>`;
+    return;
+  }
+
+  if (!OCR.unread && !OCR.read) {
+    el.innerHTML = `
+      <div class="panel" style="padding:13px 16px">
+        <b>OCR ready.</b>
+        <div class="sub" style="margin-top:4px">
+          Engine: ${esc(OCR.engine || 'Tesseract')} &middot;
+          language <code>${esc(OCR.default_language)}</code>.
+          No scanned documents found yet.
+        </div>
+      </div>`;
+    return;
+  }
+
+  const tone = OCR.unread ? 'var(--warn)' : 'var(--ok)';
+  el.innerHTML = `
+    <div class="panel" style="padding:13px 16px;border-left:5px solid ${tone}">
+      <div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">
+        <div class="grow">
+          <b>Scanned documents</b>
+          <div class="sub" style="margin-top:4px">
+            ${OCR.unread
+              ? `<b>${OCR.unread}</b> document(s) have not been read yet.`
+              : 'All scans have been read.'}
+            ${OCR.read ? ` &middot; <b>${OCR.read}</b> read (${OCR.characters.toLocaleString()} characters recovered).` : ''}
+            ${OCR.no_text ? ` &middot; ${OCR.no_text} contained no readable text.` : ''}
+            ${OCR.failed ? ` &middot; <span style="color:var(--danger)">${OCR.failed} failed.</span>` : ''}
+          </div>
+          <div class="sub" style="margin-top:6px">
+            Reading happens on this machine only. The bundle still exports the
+            <b>original scans</b>; the searchable copies are used for titles,
+            dates and search.
+          </div>
+        </div>
+        <div class="hbtns">
+          <button class="btn primary" id="ocrbtn" onclick="runOcr(false)"
+                  ${OCR.unread ? '' : 'disabled'}>
+           ${OCR.unread ? `Read ${OCR.unread} scan(s)` : 'Nothing to read'}</button>
+          ${OCR.read ? `<button class="btn sec" onclick="runOcr(true)">Re-read all</button>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
+async function runOcr(force) {
+  const btn = document.getElementById('ocrbtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Reading&hellip;'; }
+  const out = await post('api/ocr', {force: !!force});
+  if (out.error) {
+    toast(out.error + (out.hint ? '  ' + out.hint : ''));
+    await loadOcr();
+    return;
+  }
+  DOCS = out.documents || DOCS;
+  OCR = out.ocr || OCR;
+  renderOcr(); renderLibrary();
+  const s = out.stats || {};
+  toast(s.processed
+    ? `Read ${s.succeeded} of ${s.processed} scan(s)` +
+      (s.empty ? `, ${s.empty} with no readable text` : '')
+    : 'Nothing needed reading');
 }
 
 /* ============================== library ============================== */

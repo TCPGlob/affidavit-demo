@@ -84,6 +84,47 @@ def build_pdf(path: Path, title: str, body: list[str], min_pages: int = 1, foote
     doc.close()
 
 
+def build_scanned_image(path: Path, title: str = "", lines: list[str] | None = None) -> None:
+    """Render text into an image-only document, as a scanner would.
+
+    There is no text layer, so the pipeline must OCR it to know anything about
+    it. A real font at a realistic size is used deliberately: OCR quality on a
+    12px default bitmap font is not representative of a real scan.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    img = Image.new("RGB", (1275, 1650), "white")
+    d = ImageDraw.Draw(img)
+
+    font = None
+    for candidate in (
+        r"C:\Windows\Fonts\arial.ttf",
+        r"C:\Windows\Fonts\calibri.ttf",
+        r"C:\Windows\Fonts\segoeui.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    ):
+        try:
+            font = ImageFont.truetype(candidate, 30)
+            break
+        except (OSError, ValueError):
+            continue
+    big = font.font_variant(size=44) if hasattr(font, "font_variant") else font
+
+    y = 120
+    if title:
+        d.text((100, y), title, fill=(15, 15, 15), font=big)
+        y += 90
+    for line in (lines or []):
+        d.text((100, y), line, fill=(20, 20, 20), font=font)
+        y += 52
+    # A rule under the header, so it looks like a document rather than a caption.
+    d.line([(100, y + 10), (1175, y + 10)], fill=(120, 120, 120), width=3)
+
+    img.save(path)
+
+
 def build_blank_pdf(path: Path, title: str) -> None:
     """A page with no text layer - stands in for an image-only scan."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -98,8 +139,13 @@ def build_blank_pdf(path: Path, title: str) -> None:
     doc.close()
 
 
-def build_scanned_image(path: Path) -> None:
-    """A PNG that looks like a phone photo of a receipt."""
+def build_receipt_image(path: Path) -> None:
+    """A deliberately poor PNG: a low-resolution photo of a receipt.
+
+    Kept as a second OCR case alongside the clean scan, because OCR quality on a
+    bad image is the realistic situation and the pipeline should still recover
+    the key fields.
+    """
     from PIL import Image, ImageDraw
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -370,6 +416,21 @@ FIXTURES: list[Fixture] = [
     Fixture("03 - Financial/Invoice NG-4471 duplicate.pdf", "pdf",
             "INVOICE", INVOICE),
     Fixture("03 - Financial/Receipt HV-2291 scanned.png", "png", "RECEIPT"),
+    # A scanned document with real content, so OCR has something to recover and
+    # the recovered text can be asserted on.
+    Fixture("03 - Financial/Scanned invoice NG-4502.png", "scan",
+            "HARBOURVIEW STORAGE LTD.",
+            [
+                "TAX INVOICE NG-4502",
+                "Date: 30 April 2024",
+                "Client: Northgate Property Holdings Inc.",
+                "",
+                "Storage services April 2024          $18,950.00",
+                "",
+                "TOTAL DUE                            $18,950.00",
+                "",
+                "Payment terms: Net 30",
+            ]),
 
     # --- internal: privilege material ---
     Fixture("04 - Internal/File note - witness interview 2024-06-02.pdf", "pdf",
@@ -412,7 +473,9 @@ def generate(dest: Path, clean: bool = True) -> dict:
         elif fx.kind == "docx":
             build_docx(path, fx.title, fx.body or [])
         elif fx.kind == "png":
-            build_scanned_image(path)
+            build_receipt_image(path)
+        elif fx.kind == "scan":
+            build_scanned_image(path, fx.title, fx.body or [])
         elif fx.kind == "blank":
             build_blank_pdf(path, fx.title)
         elif fx.kind == "raw":

@@ -271,6 +271,8 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
                                 self._json({"entries": auth.recent_audit(c)})
                         elif path == "/api/team":
                             self._handle_team(c, user)
+                        elif path == "/api/ocr":
+                            self._json(self._ocr_summary(c))
                         elif path == "/api/collections":
                             self._json({
                                 "collections": db.list_collections(c),
@@ -319,6 +321,8 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
                             self._handle_collection_action(c, actor, raw)
                         elif path == "/api/collections/export":
                             self._handle_export(c, actor, raw)
+                        elif path == "/api/ocr":
+                            self._handle_ocr_run(c, actor, raw)
                         else:
                             self._send(404, b"not found", "text/plain")
             except Exception as exc:  # noqa: BLE001
@@ -347,6 +351,66 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
                 return payload if isinstance(payload, dict) else None
             except (json.JSONDecodeError, UnicodeDecodeError):
                 return None
+
+        def _ocr_summary(self, c) -> dict:
+            from . import ocr as ocr_mod
+
+            tool = ocr_mod.find_tesseract()
+            rows = c.execute(
+                """SELECT COALESCE(ocr_status,'pending') s, COUNT(*) n
+                   FROM documents WHERE pdf_path IS NOT NULL GROUP BY s"""
+            ).fetchall()
+            counts = {r["s"]: r["n"] for r in rows}
+            unread = c.execute(
+                "SELECT COUNT(*) n FROM documents WHERE needs_ocr=1"
+            ).fetchone()["n"]
+            chars = c.execute(
+                "SELECT COALESCE(SUM(ocr_chars),0) n FROM documents"
+            ).fetchone()["n"]
+            return {
+                "engine_available": tool.available,
+                "engine": tool.version,
+                "languages": tool.languages,
+                "default_language": cfg.ocr_lang,
+                "unread": unread,
+                "read": counts.get("ok", 0),
+                "no_text": counts.get("no_text_found", 0),
+                "failed": counts.get("failed", 0) + counts.get("unavailable", 0),
+                "characters": chars,
+            }
+
+        def _handle_ocr_run(self, c, user, raw: bytes) -> None:
+            payload = self._read_json(raw) or {}
+            who = user.username if user else "local"
+            from . import ocr as ocr_mod
+            from . import pipeline as pipeline_mod
+
+            tool = ocr_mod.find_tesseract()
+            if not tool.available:
+                self._json({
+                    "error": "Tesseract is not installed on this machine.",
+                    "hint": "winget install UB-Mannheim.TesseractOCR",
+                    "ocr": self._ocr_summary(c),
+                }, 400)
+                return
+
+            pending = c.execute(
+                "SELECT COUNT(*) n FROM documents WHERE pdf_path IS NOT NULL "
+                "AND needs_ocr=1 AND (ocr_status IS NULL "
+                "OR ocr_status IN ('failed','no_text_found'))"
+            ).fetchone()["n"]
+            if payload.get("force") or pending:
+                stats = pipeline_mod.run_ocr_stage(c, cfg, {},
+                                                   force=bool(payload.get("force")))
+                auth.audit(c, who, None, "ocr_run",
+                           f"read={stats['succeeded']} empty={stats['empty']} "
+                           f"failed={stats['failed']}")
+            else:
+                stats = {"processed": 0, "succeeded": 0, "empty": 0,
+                         "failed": 0, "chars": 0}
+            self._json({"ok": True, "stats": stats,
+                        "ocr": self._ocr_summary(c),
+                        "documents": fetch_documents(c)})
 
         def _handle_team(self, c, user) -> None:
             """Who is on the team and what they have been doing.

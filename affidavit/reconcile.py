@@ -98,6 +98,30 @@ def reconcile(conn, cfg: Config) -> dict:
         "SELECT COUNT(*) c FROM documents WHERE needs_ocr=1"
     ).fetchone()["c"]
 
+    # OCR outcomes, so a scan that was read is visibly different from one that
+    # merely failed to convert.
+    ocr_rows = conn.execute(
+        """SELECT ocr_status, COUNT(*) c FROM documents
+           WHERE ocr_status IS NOT NULL GROUP BY ocr_status"""
+    ).fetchall()
+    ocr_counts = {r["ocr_status"]: r["c"] for r in ocr_rows}
+    ocr_chars = conn.execute(
+        "SELECT COALESCE(SUM(ocr_chars),0) c FROM documents"
+    ).fetchone()["c"]
+
+    if ocr:
+        problems.append(
+            f"[OCR] {ocr} scan(s) still unread - run: python pipeline.py ocr"
+        )
+    for status, count in ocr_counts.items():
+        if status == "no_text_found":
+            problems.append(
+                f"[OCR] {count} scan(s) yielded no readable text "
+                "(blank, or poor image quality) - open them and check by eye"
+            )
+        elif status in ("failed", "unavailable"):
+            problems.append(f"[OCR] {count} document(s) failed OCR ({status})")
+
     placeholders = [
         r["src_relpath"] for r in rows if (r["pdf_status"] or "") == "skipped_no_converter"
     ]
@@ -123,6 +147,8 @@ def reconcile(conn, cfg: Config) -> dict:
         "converted_ok": linked,
         "placeholders": len(placeholders),
         "needs_ocr": ocr,
+        "ocr_counts": ocr_counts,
+        "ocr_chars": ocr_chars,
         "duplicates_collapsed": counts.get("role:duplicate", 0),
         "unsupported": counts.get("role:unsupported", 0),
         "problems": problems,
@@ -168,7 +194,10 @@ def _write_markdown(cfg: Config, trace: list[dict], summary: dict) -> None:
         f"| Converted successfully | {summary['converted_ok']} |",
         f"| Duplicates collapsed | {summary['duplicates_collapsed']} |",
         f"| Placeholders (missing converter) | {summary['placeholders']} |",
-        f"| Requiring OCR | {summary['needs_ocr']} |",
+        f"| Scans still unread | {summary['needs_ocr']} |",
+        f"| Scans read by OCR | {summary.get('ocr_counts', {}).get('ok', 0)} |",
+        f"| Scans with no readable text | {summary.get('ocr_counts', {}).get('no_text_found', 0)} |",
+        f"| Characters recovered by OCR | {summary.get('ocr_chars', 0):,} |",
         f"| Unsupported formats | {summary['unsupported']} |",
         f"| **Problems requiring attention** | **{len(summary['problems'])}** |",
         "",
@@ -207,7 +236,9 @@ def _print_summary(summary: dict) -> None:
     print(f"  converted ok          {summary['converted_ok']}")
     print(f"  duplicates collapsed  {summary['duplicates_collapsed']}")
     print(f"  placeholders          {summary['placeholders']}")
-    print(f"  requiring OCR         {summary['needs_ocr']}")
+    print(f"  scans still unread    {summary['needs_ocr']}")
+    print(f"  scans read by OCR     {summary.get('ocr_counts', {}).get('ok', 0)}"
+          f"  ({summary.get('ocr_chars', 0):,} characters)")
     print(f"  unsupported           {summary['unsupported']}")
     problems = summary["problems"]
     if problems:
