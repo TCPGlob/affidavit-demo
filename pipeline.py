@@ -97,6 +97,83 @@ def cmd_run(args) -> int:
     return 0
 
 
+def cmd_share(args) -> int:
+    """Start reachable by colleagues, and print the address to give them."""
+    root = Path(args.root).resolve()
+    cfg = load_config(root)
+    conn = _open_db(cfg)
+    try:
+        addresses = share_addresses(args.port)
+        print(BANNER)
+        print("  SHARING THIS APP WITH COLLEAGUES")
+        print(BANNER)
+        if addresses:
+            for kind, addr in addresses:
+                print(f"  {kind:<26} {addr}")
+        else:
+            print("  Could not work out this machine's address automatically.")
+            print(f"  Share:  http://<this-machine-ip>:{args.port}/")
+        print()
+        print("  The person running this keeps the window open. Others need")
+        print("  nothing installed - just the address above in a browser.")
+        print()
+        print("  IF A COLLEAGUE CANNOT CONNECT:")
+        print("    - Windows Firewall may have blocked Python. Re-run and choose")
+        print("      Allow, or allow Python on Private networks in Firewall settings.")
+        print("    - Someone at home cannot use a 192.168/10.x address. See")
+        print("      SETUP.md - 'Working from home'.")
+        print()
+        review.serve(
+            conn, cfg,
+            port=args.port,
+            open_browser=not args.no_browser,
+            host="0.0.0.0",
+            require_auth=not args.no_auth,
+            secure_cookie=args.secure_cookie,
+        )
+    finally:
+        conn.close()
+    return 0
+
+
+def share_addresses(port: int, host: str = "0.0.0.0") -> list[tuple[str, str]]:
+    """Work out the addresses a colleague could use, best first.
+
+    Tailscale addresses come first because they work from anywhere and are
+    already encrypted; a plain LAN address only works on the same network.
+    """
+    import socket
+
+    found: list[str] = []
+    try:
+        # Does not send traffic; just asks the routing table which local
+        # address would be used to reach the outside world.
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        found.append(s.getsockname()[0])
+        s.close()
+    except OSError:
+        pass
+
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if ip not in found and not ip.startswith("127."):
+                found.append(ip)
+    except OSError:
+        pass
+
+    out: list[tuple[str, str]] = []
+    for ip in found:
+        if ip.startswith("100."):
+            # 100.64.0.0/10 is the carrier-grade NAT range Tailscale uses.
+            out.append(("Tailscale (works anywhere)", f"http://{ip}:{port}/"))
+    for ip in found:
+        if not ip.startswith("100."):
+            out.append(("Same office / same wifi", f"http://{ip}:{port}/"))
+    return out
+
+
 def cmd_review(args) -> int:
     root = Path(args.root).resolve()
     cfg = load_config(root)
@@ -503,6 +580,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("collections", help="list bundles and their contents")
     s.set_defaults(func=cmd_collections)
+
+    s = sub.add_parser(
+        "share",
+        help="let colleagues connect, and print the address to give them",
+    )
+    s.add_argument("--port", type=int, default=8765)
+    s.add_argument("--no-browser", action="store_true")
+    s.add_argument("--secure-cookie", action="store_true",
+                   help="use when the address is HTTPS (a VPN that adds a padlock)")
+    s.add_argument("--no-auth", action="store_true",
+                   help="NOT recommended: drop the sign-in requirement")
+    s.set_defaults(func=cmd_share)
 
     s = sub.add_parser("ocr", help="read scanned documents (requires Tesseract)")
     s.add_argument("--force", action="store_true",

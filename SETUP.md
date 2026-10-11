@@ -10,6 +10,8 @@ browser.
 
 ---
 
+---
+
 # Part 1 — Running it for your team
 
 ## On Windows: double-click a file
@@ -60,28 +62,113 @@ create-user …`) if you prefer, but nothing requires it.
 By default the app is reachable **only from the computer it runs on**. That is the
 safe default.
 
-To let the team connect, a helper needs to start it so it listens on the network.
-Editing `start-windows.bat` and changing the last line to add `--host 0.0.0.0`
-does it:
+There is a command that starts it for sharing and prints the address to hand out:
 
 ```
-%PY% pipeline.py review --users --host 0.0.0.0
+python pipeline.py share
 ```
 
-Then colleagues open `http://<your-computer-address>:8765/` in their browser.
+That prints something like:
 
-**Before you do this, two things:**
+```
+Same office / same wifi    http://10.33.38.26:8765/
+```
 
-1. **Keep `--users` on.** Without it, anyone who can reach the address can read
-   every document, and no one has to sign in.
-2. **Put it on a private network** — a VPN or Tailscale — rather than opening it
-   to the internet. For client material this is much the safer choice, and it
-   avoids needing certificates altogether.
+Give colleagues that address. They need nothing installed — just a browser. You
+keep the black window open; it is the server.
 
-If it does need to face the internet, it must sit behind HTTPS. Ask whoever
-manages your IT to put a small piece of software in front of it (Caddy and nginx
-are the usual choices) that adds the padlock, and start the app with the extra
-flag `--secure-cookie`.
+**If a colleague cannot connect, it is almost always Windows Firewall.** Re-run
+and choose **Allow** when Windows asks, or allow Python on *Private* networks in
+Windows Firewall settings.
+
+---
+
+# Working from home
+
+There are two different situations, and they need different answers.
+
+| Where the colleague is | What works |
+|---|---|
+| Same office or same wifi | The address `share` prints. Nothing else needed. |
+| At home, or on mobile data | A **private network between the computers**. The office address will not work. |
+
+A `10.33.x.x` or `192.168.x.x` address only exists inside one building. It is
+meaningless from a home connection — this is not a setting you can change, it is
+how home and office networks work.
+
+## The easy answer: Tailscale
+
+[Tailscale](https://tailscale.com) creates a private, encrypted network between
+computers as if they were on the same wifi, wherever they are. It is free for
+small teams, takes about five minutes, and **needs no changes to your office
+router and nothing exposed to the internet.**
+
+1. Install Tailscale on the computer that will run the app, and sign in.
+2. Install it on each colleague's computer, and sign in with the same account.
+3. Run `python pipeline.py share` on the host.
+
+Addresses beginning `100.` in the output are the Tailscale ones and **work from
+anywhere**. Give colleagues that address instead of the office one:
+
+```
+Tailscale (works anywhere)  http://100.101.102.103:8765/
+Same office / same wifi     http://10.33.38.26:8765/
+```
+
+That is the whole setup. The documents never touch the public internet; Tailscale
+carries the traffic directly between your computers, encrypted.
+
+> **WireGuard** is already installed on some machines and does the same job, but
+> it requires someone to configure a server and hand out keys. Tailscale is the
+> same technology with the setup done for you. If your IT already runs a
+> WireGuard or OpenVPN server, use that instead — connect first, then use the
+> address `share` prints.
+
+## The better answer for a real firm: a machine of their own
+
+For ongoing client work, running it on somebody's laptop is the weak point —
+close the lid and the app is down for everyone. The sturdier arrangement:
+
+- One always-on computer at the firm (a small server, or a machine nobody moves)
+- Tailscale installed on it and on everyone who needs access
+- The app running there with `--users`, so each person signs in
+- Automatic backups of the `work` folder
+
+Nothing is exposed to the internet, and it keeps working when laptops close.
+
+## When it must face the internet
+
+Sometimes a firm insists on a plain web address. Then it **must** sit behind
+HTTPS, and `--secure-cookie` must be used — without the padlock, sign-in
+passwords travel in the clear across the internet.
+
+Ask whoever manages their IT to put a small piece of software in front of it
+(Caddy and nginx are the usual choices) that adds the padlock and forwards to
+`http://127.0.0.1:8765`. Do not simply forward a port from the internet to this
+app: the built-in server speaks plain HTTP and is not built to be the thing the
+public internet talks to.
+
+## When someone genuinely cannot connect
+
+The last resort is to install the app on their own computer, with their own copy
+of the documents. It works, but **each copy is its own separate library** —
+collections are not shared, and two people will not see each other's work. Use it
+only if a private network is impossible.
+
+---
+
+## Quick reference
+
+| Situation | What to do |
+|---|---|
+| Just me, this laptop | `start-windows.bat` |
+| Show a client | `demo-windows.bat` |
+| Colleagues in the same office | `python pipeline.py share` |
+| A colleague at home | Install Tailscale on both, then `share` |
+| A firm running it properly | Always-on machine + Tailscale + `--users` |
+| Must be a public web address | HTTPS in front, plus `--secure-cookie` |
+
+---
 
 ---
 

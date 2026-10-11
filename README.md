@@ -153,11 +153,16 @@ the same approach wikis use.
 
 | Command | Purpose |
 |---|---|
+| `python pipeline.py share` | let colleagues connect, and print the address to give them |
 | `python pipeline.py collections` | list bundles and what is in them |
 | `python pipeline.py bundle --docs 8,1,11 --name "Bundle A"` | build and export a bundle without the browser |
+| `python pipeline.py ocr` | read scanned documents again |
 | `python pipeline.py users` | list accounts and how many documents each reviewed |
 | `python pipeline.py audit` | show who changed what, and when |
 | `python pipeline.py create-user …` | add an account |
+
+Reaching colleagues in another building, or at home, needs a private network
+rather than a plain address — see [SETUP.md](SETUP.md#working-from-home).
 
 Build a bundle entirely from the command line:
 
