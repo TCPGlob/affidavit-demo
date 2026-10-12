@@ -154,10 +154,27 @@ function runChecks() {
   try {
     els['helpq'].value = '';
     sandbox.toggleGuide();
+    const afterFirst = els['guidebtn'].textContent;
     sandbox.toggleGuide();
+    const afterSecond = els['guidebtn'].textContent;
     check('the instructions toggle works',
-          (els['guidehint'].textContent || '').includes('arrow'));
+          afterFirst !== afterSecond && /Instructions|Hide/.test(afterFirst),
+          `"${afterFirst}" -> "${afterSecond}"`);
   } catch (e) { check('the instructions toggle works', false, e.message); }
+
+  // The arrow is the summary of a native <details>. It must not also have an
+  // onclick, because then one click toggles twice and cancels itself out, which
+  // is why only the button used to appear to work.
+  try {
+    const summ = html.match(/<summary[^>]*>/);
+    check('the summary does not double-toggle the panel',
+          summ && !/onclick/.test(summ[0]), summ ? summ[0] : 'no summary');
+    check('the panel updates its labels from the toggle event',
+          html.includes("addEventListener('toggle'"), 'toggle listener present');
+    check('the button and the arrow drive the same state',
+          html.includes('guideLabels') && html.includes('initGuide'),
+          '');
+  } catch (e) { check('the summary does not double-toggle the panel', false, e.message); }
 
   try {
     sandbox.renderLibrary();

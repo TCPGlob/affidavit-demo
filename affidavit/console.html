@@ -234,8 +234,8 @@
 
   <!-- ===================== GUIDE ===================== -->
   <details class="panel" id="guide" open>
-    <summary onclick="toggleGuide()">How this works &mdash; read this first
-      <span class="hintline" id="guidehint">click the arrow to hide these instructions</span></summary>
+    <summary id="guidesum">How this works &mdash; read this first
+      <span class="hintline" id="guidehint">click here or use the Instructions button to hide these</span></summary>
     <div class="pbody" id="guidebody"></div>
   </details>
 
@@ -460,17 +460,38 @@ function renderGuide() {
     </ul>`;
 }
 
-function toggleGuide() {
+/* The panel is a native <details>, so clicking the summary already opens and
+   closes it. Adding onclick="toggleGuide()" here as well toggled it a second
+   time and cancelled itself out, which is why only the button appeared to work.
+   The label is now updated from the toggle event, so the arrow, the summary
+   text and the button all stay in step. */
+function guideLabels() {
   const g = document.getElementById('guide');
-  g.open = !g.open;
-  document.getElementById('guidebtn').textContent = g.open ? 'Hide instructions' : 'Instructions';
+  const btn = document.getElementById('guidebtn');
+  if (btn) btn.textContent = g.open ? 'Hide instructions' : 'Instructions';
   const hint = document.getElementById('guidehint');
   if (hint) {
     hint.textContent = g.open
-      ? 'click the arrow to hide these instructions'
-      : 'click the arrow to show these instructions again';
+      ? 'click here or use the Instructions button to hide these'
+      : 'click here to show these instructions again';
   }
   try { localStorage.setItem('aodGuide', g.open ? '1' : '0'); } catch (e) {}
+}
+
+function toggleGuide(force) {
+  const g = document.getElementById('guide');
+  g.open = (typeof force === 'boolean') ? force : !g.open;
+  guideLabels();
+}
+
+function initGuide() {
+  const g = document.getElementById('guide');
+  // Fires for the summary click, a keyboard toggle, and our own changes.
+  g.addEventListener('toggle', guideLabels);
+  try {
+    if (localStorage.getItem('aodGuide') === '0') g.open = false;
+  } catch (e) {}
+  guideLabels();
 }
 
 /* ============================== tabs ============================== */
@@ -1843,7 +1864,7 @@ function toast(msg) {
 
 document.getElementById('filter').addEventListener('change', renderLibrary);
 document.getElementById('bulkTarget').addEventListener('change', () => {});
-try { if (localStorage.getItem('aodGuide') === '0') toggleGuide(); } catch (e) {}
+try { initGuide(); } catch (e) {}
 boot();
 </script>
 </body>

@@ -235,6 +235,10 @@ def start_watcher(conn, cfg) -> bool:
               "not starting a second one.")
         return False
 
+    # So that clearing the library from the console can tell this watcher to
+    # forget what it was tracking, instead of waiting for it to work it out.
+    watcher_mod.register(w)
+
     def loop():
         try:
             while True:

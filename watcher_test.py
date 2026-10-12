@@ -240,6 +240,61 @@ def main() -> int:
         check("ingestion is recorded", "ingested" in kinds)
         check("processing is recorded", "processed" in kinds)
 
+        # ---------------- clearing the library ---------------------------
+        #
+        # Clearing the library deletes the copies in intake/source. A file left
+        # in the drop folder must then be taken again. It was not: the record of
+        # having taken it survived, so the file sat in the drop folder for good
+        # with an empty Library and nothing to explain why.
+        print("\n--- clearing the library, with the watcher still running ---")
+        leftover = cfg.watch_dir / "Kept in the drop folder.pdf"
+        make_pdf(leftover, "Kept after reset", "2026-04-04")
+
+        # Let it be taken, so the state looks exactly as it does in real use.
+        for _ in range(12):
+            w.scan_once()
+            if any(p.name == leftover.name for p in cfg.source_dir.rglob("*")):
+                break
+            time.sleep(0.4)
+        check("the file is taken before the reset",
+              any(p.name == leftover.name for p in cfg.source_dir.rglob("*")))
+        check("and the drop folder still has the original", leftover.exists())
+
+        # The user clicks "Replace the sample documents".
+        db.reset_library(conn, cfg)
+        watcher.forget_tracked_files()
+        library_after = [p.name for p in cfg.source_dir.rglob("*") if p.is_file()]
+        check("the library is empty after the reset", not library_after, str(library_after))
+
+        # The watcher must take the file again rather than refusing it.
+        taken_again = False
+        for _ in range(20):
+            w.scan_once()
+            if any(p.name == leftover.name for p in cfg.source_dir.rglob("*")):
+                taken_again = True
+                break
+            time.sleep(0.4)
+        check("a file left in the drop folder is taken again after the reset",
+              taken_again,
+              str([p.name for p in cfg.source_dir.rglob("*") if p.is_file()]))
+        check("the user's file in the drop folder was never removed", leftover.exists())
+
+        # And an unusable file must still be copied in only once, which is the
+        # reason the record exists at all.
+        print("\n--- an unusable file is still taken only once ---")
+        junk = cfg.watch_dir / "not a document.zip"
+        junk.write_bytes(b"PK\x03\x04 nonsense")
+        for _ in range(12):
+            w.scan_once()
+            if any(p.name == junk.name for p in cfg.source_dir.rglob("*")):
+                break
+            time.sleep(0.4)
+        for _ in range(6):
+            w.scan_once()
+            time.sleep(0.2)
+        copies = [p.name for p in cfg.source_dir.rglob("*") if p.name.startswith("not a document")]
+        check("it was copied in once, not on every scan", len(copies) == 1, str(copies))
+
     finally:
         conn.close()
         shutil.rmtree(tmp, ignore_errors=True)

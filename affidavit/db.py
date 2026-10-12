@@ -137,9 +137,14 @@ CREATE TABLE IF NOT EXISTS sync_state (
 -- Without this, a file the pipeline cannot use (a .zip, say) stays in the drop
 -- folder and is copied in again on every scan, producing endless copies. The
 -- drop folder is the user's, so the file cannot simply be moved away.
+--
+-- The destination is stored because the record is only meaningful while that
+-- copy still exists. Clearing the library deletes the copies, and a record
+-- without a destination would then refuse the file forever.
 CREATE TABLE IF NOT EXISTS sync_files (
     sha256    TEXT NOT NULL,
     name      TEXT,
+    dest      TEXT,
     first_seen TEXT,
     PRIMARY KEY (sha256)
 );
@@ -171,6 +176,10 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     # because ingest() already sets text_fingerprint, so that column cannot be
     # used to tell "not yet read" from "read".
     ("documents", "profiled_at", "TEXT"),
+    # The library copy of a file taken from the drop folder. The "already taken"
+    # record is only meaningful while this exists, so clearing the library lets
+    # the same file be taken again instead of being refused forever.
+    ("sync_files", "dest", "TEXT"),
 ]
 
 SCHEDULES = ("A", "B", "C")

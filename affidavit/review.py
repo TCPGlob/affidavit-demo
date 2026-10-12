@@ -474,6 +474,14 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
                 for d in (ctx.cfg.work_dir / "normalized", ctx.cfg.work_dir / "ocr"):
                     shutil.rmtree(d, ignore_errors=True)
 
+            # The watcher has its own memory of what it has handled. Clearing the
+            # library is meaningless to it otherwise, and files already sitting
+            # in the drop folder would sit there for good.
+            from . import watcher as watcher_mod
+
+            forgot = watcher_mod.forget_tracked_files()
+            result["watcher_notified"] = forgot
+
             auth.audit(c, actor, None, "library_reset",
                        f"clear_samples={include_source} removed={result['removed']}")
             self._json({"ok": True, **result})

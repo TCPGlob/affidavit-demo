@@ -59,6 +59,25 @@ def _sha256(path: Path, chunk: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
+# The watcher running in this process, if any. Held so that an action taken in
+# the console, clearing the library for instance, can tell it to forget what it
+# was tracking rather than waiting for it to notice by itself.
+_running: "Watcher | None" = None
+
+
+def register(watcher: "Watcher | None") -> None:
+    global _running
+    _running = watcher
+
+
+def forget_tracked_files() -> bool:
+    """Drop the pending set of the running watcher. True if there was one."""
+    if _running is None:
+        return False
+    _running._seen.clear()
+    return True
+
+
 def looks_like_cloud_folder(path: Path) -> str | None:
     """Return the cloud service name if the path sits inside a synced folder."""
     try:
@@ -245,36 +264,43 @@ class Watcher:
         return candidate
 
     def _already_taken(self, path: Path) -> bool:
-        """Has this exact file already been copied in?
+        """Has this exact content already been copied in, and is that copy there?
 
-        Needed because a file the pipeline cannot use stays where the user put
-        it. Without this it would be copied into the library again on every
-        scan, filling the library with the same unusable file.
+        Read-only. Two jobs:
+
+        A file the pipeline cannot use (a .zip, say) stays in the drop folder, so
+        without a record it would be copied into the library on every scan.
+
+        But the record is only meaningful while the library copy exists. Clearing
+        the library deletes the copies, and a record without a destination would
+        then refuse the file forever, leaving it stuck in the drop folder with an
+        empty Library and nothing to explain why.
         """
         try:
             digest = _sha256(path)
         except OSError:
             return False
-        row = self.conn.execute(
-            "SELECT sha256 FROM sync_files WHERE sha256=?", (digest,)
-        ).fetchone()
-        if row:
-            return True
+
         try:
-            self.conn.execute(
-                "INSERT INTO sync_files (sha256, name, first_seen) VALUES (?,?,?)",
-                (digest, path.name[:200], now_iso()),
-            )
-            self.conn.commit()
-        except Exception:  # noqa: BLE001
-            pass
-        return False
+            row = self.conn.execute(
+                "SELECT dest FROM sync_files WHERE sha256=?", (digest,)
+            ).fetchone()
+        except Exception:  # noqa: BLE001 - an old database without the column
+            return False
+        if row is None:
+            return False
+
+        dest = row["dest"] if "dest" in row.keys() else None
+        if not dest:
+            # Recorded before destinations were kept, so it cannot be trusted.
+            return False
+        return Path(dest).exists()
 
     def take(self, path: Path) -> Path | None:
         """Copy a dropped file into the library. Returns the new path.
 
-        Returns None when the file has been taken before, so the caller knows
-        nothing was copied.
+        Returns None when this exact content has already been taken, so the
+        caller knows nothing was copied.
         """
         if self._already_taken(path):
             return None
@@ -286,6 +312,8 @@ class Watcher:
         dest_dir = self.source_dir / relative_parent
         dest_dir.mkdir(parents=True, exist_ok=True)
 
+        # A different file that happens to share the name gets a suffix rather
+        # than overwriting what is already there.
         dest = dest_dir / path.name
         if dest.exists():
             dest = self._free_name(str(relative_parent / path.name))
@@ -295,7 +323,26 @@ class Watcher:
         except OSError as exc:
             self._reject(path, f"could not copy into the library: {exc}")
             return None
+        self._remember(path, dest)
         return dest
+
+    def _remember(self, path: Path, dest: Path | None = None) -> None:
+        """Record a file as handled, and where its library copy went."""
+        try:
+            digest = _sha256(path)
+        except OSError:
+            return
+        try:
+            self.conn.execute(
+                "INSERT INTO sync_files (sha256, name, dest, first_seen) "
+                "VALUES (?,?,?,?) "
+                "ON CONFLICT(sha256) DO UPDATE SET dest=excluded.dest, "
+                "name=excluded.name",
+                (digest, path.name[:200], str(dest) if dest else None, now_iso()),
+            )
+            self.conn.commit()
+        except Exception:  # noqa: BLE001
+            pass
 
     def _reject(self, path: Path, reason: str) -> None:
         self.state.failed += 1
