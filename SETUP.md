@@ -1,3 +1,4 @@
+All is complete, just tweaks and modifications as per the client's requests
 # Setting up, and showing it to a client
 
 Two separate things:
