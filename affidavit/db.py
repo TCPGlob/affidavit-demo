@@ -335,7 +335,14 @@ def list_collections(conn: sqlite3.Connection, include_finished: bool = False) -
                       (SELECT COUNT(*) FROM collection_items i
                          JOIN documents d ON d.id = i.doc_id
                         WHERE i.collection_id = c.id
-                          AND d.pdf_status NOT IN ('ok', 'passthrough')) AS not_converted
+                          AND d.pdf_status NOT IN ('ok', 'passthrough')) AS not_converted,
+                      -- Still being prepared by the watcher: conversion or
+                      -- metadata reading has not finished. Exporting now would
+                      -- produce an unnamed, undated file.
+                      (SELECT COUNT(*) FROM collection_items i
+                         JOIN documents d ON d.id = i.doc_id
+                        WHERE i.collection_id = c.id
+                          AND (d.pdf_path IS NULL OR d.profiled_at IS NULL)) AS not_ready
                FROM collections c
                {where}
                ORDER BY c.updated_at DESC, c.id DESC"""

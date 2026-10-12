@@ -98,6 +98,10 @@ def main() -> int:
             title_guess=title, doc_type="Document" if i != 3 else "Receipt",
             doc_date=f"2024-0{i}-15", needs_ocr=needs_ocr, has_text_layer=0 if needs_ocr else 1,
             text_fingerprint=f"fp{i}",
+            # profiled_at marks conversion and metadata reading as finished.
+            # Export refuses documents still being prepared, so the seed data
+            # has to look finished.
+            profiled_at=db.utcnow(),
         )
         doc_ids.append(doc_id)
     conn.commit()
@@ -284,6 +288,38 @@ def main() -> int:
             check("refuse to export an empty collection", False, "no error raised")
         except db.CollectionError:
             check("refuse to export an empty collection", True)
+
+        # A document the watcher has not finished preparing. Exporting it would
+        # produce an unnamed, undated file, so it must be refused.
+        pending_pdf = tmp / "pending.pdf"
+        _make_pdf(pending_pdf, "Not Ready Yet")
+        pending_id = db.upsert_document(
+            conn, sha256="pending1", canonical_src="pending.pdf", ext=".pdf",
+            pdf_path=str(pending_pdf), pdf_status="pending",
+            title_guess="Notice of Motion",
+        )
+        conn.commit()
+        pending_cid = db.create_collection(conn, "Pending Bundle", "", "jane")
+        db.add_to_collection(conn, pending_cid, [pending_id], "jane")
+        try:
+            col.export_collection(conn, cfg, pending_cid, username="jane")
+            check("refuse to export a document still being prepared", False,
+                  "it exported an unfinished document")
+        except db.CollectionError as exc:
+            check("refuse to export a document still being prepared", True)
+            check("and it says which document",
+                  "still being prepared" in str(exc), str(exc)[:70])
+
+        # Once prepared, the same collection exports.
+        conn.execute("UPDATE documents SET profiled_at=?, pdf_status='ok' WHERE id=?",
+                     (db.utcnow(), pending_id))
+        conn.commit()
+        result_pending = col.export_collection(conn, cfg, pending_cid, username="jane")
+        check("it exports once preparation has finished",
+              len(result_pending["exported"]) == 1)
+        check("and the file is named, not just 'document'",
+              "document.pdf" not in result_pending["exported"][0]["file_name"],
+              result_pending["exported"][0]["file_name"])
 
         # ---------------- delete -----------------------------------------
         db.delete_collection(conn, cid2)

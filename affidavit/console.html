@@ -73,6 +73,9 @@
 
   /* tables */
   .tablewrap{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  /* A document the watcher is still converting or reading. Faded, so it reads
+     as not yet usable rather than as an error. */
+  tr.prep{background:#fcfcfd;opacity:.65}
   table{width:100%;border-collapse:collapse}
   th,td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
   th{background:#f2f4f7;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);
@@ -941,11 +944,13 @@ function renderLibrary() {
     ].join(' ');
     const tags = Object.entries(d.tags || {});
     const inCols = (d.collection_names || []);
-    return `<tr data-id="${d.id}">
+    const preparing = conv || d.pdf_status === 'pending';
+    return `<tr data-id="${d.id}" class="${preparing ? 'prep' : ''}">
       <td><input type="checkbox" class="pick" value="${d.id}" onchange="selCount()"></td>
       <td>
         <div class="name">${esc(d.title_guess)}</div>
         <div class="meta">${esc(d.canonical_src)}</div>
+        ${preparing ? '<span class="pill p-emp" title="The watcher is still converting or reading this document. It cannot be exported until it finishes.">PREPARING</span>' : ''}
         ${badges}
       </td>
       <td class="meta">${esc(d.doc_type)}</td>

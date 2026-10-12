@@ -155,6 +155,26 @@ def export_collection(conn, cfg: Config, collection_id: int,
     if not items:
         raise db.CollectionError("This collection has no documents in it yet.")
 
+    # Refuse to export anything still being prepared.
+    #
+    # The folder watcher processes documents in the background, so a person can
+    # tick something seconds after dropping it and export before the conversion
+    # and metadata reading have finished. Doing that produced files named
+    # "document.pdf" with no date, which is worse than making them wait a moment.
+    not_ready = [
+        i for i in items
+        if not i.get("pdf_path") or i.get("profiled_at") is None
+    ]
+    if not_ready:
+        names = ", ".join(
+            (Path(i["canonical_src"]).name or "a document")[:40] for i in not_ready[:3]
+        )
+        more = f" and {len(not_ready) - 3} more" if len(not_ready) > 3 else ""
+        raise db.CollectionError(
+            f"{len(not_ready)} document(s) in this collection are still being "
+            f"prepared: {names}{more}. Wait a few seconds and export again."
+        )
+
     entries = build_manifest(conn, cfg, collection, items)
 
     name = collection["name"]
