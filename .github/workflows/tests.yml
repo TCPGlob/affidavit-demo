@@ -84,6 +84,9 @@ jobs:
       - name: Clearing the library tests
         run: python clear_test.py
 
+      - name: Date ordering tests
+        run: python order_test.py
+
       - name: Legacy affidavit export tests
         run: python e2e_test.py
 
