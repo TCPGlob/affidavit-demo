@@ -107,6 +107,13 @@ def run(conn, cfg: Config, fresh: bool = False, skip_ingest: bool = False,
 
     # ---------------------------------------------------------- 1. ingest
     if not skip_ingest:
+        # A user clearing intake/source themselves is reasonable, and the record
+        # of those files has to go with them, or anything still in the drop
+        # folder would be refused for ever.
+        forgotten = db.forget_library_copies(conn, cfg)
+        if forgotten:
+            print(f"          {forgotten} record(s) dropped for library copies "
+                  "that are no longer on disk")
         print("Step 1/4  Ingesting, fingerprinting and grouping")
         pruned = ingest_module.prune_missing(conn, cfg)
         if pruned["documents_removed"]:

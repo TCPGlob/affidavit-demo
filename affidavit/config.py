@@ -147,6 +147,78 @@ class Config:
         return json.dumps(d, indent=2)
 
 
+def list_folders(path: str = "") -> dict:
+    """Immediate sub-folders of a path, for the folder browser in the console.
+
+    A native file dialog cannot be used: the server may be running without a
+    desktop, so the dialog appears nowhere and the request never returns, taking
+    the whole app down with it while it waits. Listing folders works the same
+    from the machine itself and from a browser across the network.
+    """
+    import os
+
+    result: dict = {"path": "", "parent": None, "folders": [], "drives": [],
+                    "error": ""}
+
+    # Which roots exist. On Windows that means drive letters; elsewhere, /.
+    drives: list[str] = []
+    if os.name == "nt":
+        for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+            root = f"{letter}:\\"
+            if os.path.exists(root):
+                drives.append(root)
+    else:
+        drives = ["/"]
+    result["drives"] = drives
+
+    raw = (path or "").strip().strip('"')
+    if not raw:
+        # Nothing chosen yet: offer the roots rather than guessing.
+        return result
+
+    try:
+        current = Path(raw).expanduser()
+        current = current.resolve() if current.exists() else current
+    except OSError:
+        current = Path(raw)
+    result["path"] = str(current)
+
+    if not current.exists():
+        result["error"] = f"That folder does not exist: {current}"
+        result["drives"] = drives
+        return result
+    if not current.is_dir():
+        result["error"] = f"That is a file, not a folder: {current}"
+        return result
+
+    parent = current.parent
+    result["parent"] = str(parent) if str(parent) != str(current) else None
+
+    entries: list[dict] = []
+    try:
+        with os.scandir(current) as it:
+            for entry in it:
+                try:
+                    if not entry.is_dir():
+                        continue
+                    # Hidden and system folders are noise in a folder picker.
+                    if entry.name.startswith(".") or entry.name.startswith("$"):
+                        continue
+                    entries.append({"name": entry.name, "path": entry.path})
+                except OSError:
+                    continue
+    except PermissionError:
+        result["error"] = f"You do not have permission to look inside {current}."
+        return result
+    except OSError as exc:
+        result["error"] = f"That folder could not be read: {exc}"
+        return result
+
+    entries.sort(key=lambda e: e["name"].lower())
+    result["folders"] = entries
+    return result
+
+
 def save_config(cfg: Config, root: Path | str = ".") -> Path:
     """Write the settings file, so a change made in the console survives a restart.
 

@@ -22,6 +22,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from . import auth, collections, db, help as help_mod
+from . import config as config_mod
 from .config import Config
 
 CONSOLE_HTML = Path(__file__).resolve().parent / "console.html"
@@ -399,6 +400,12 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
                                 return
                             self._send(200, _recover_page(), "text/html; charset=utf-8")
                             return
+                        if path == "/api/pickfolder":
+                            # A listing, so it is a GET. It must never open a
+                            # dialog: see the handler.
+                            user = self._current_user(c)
+                            self._handle_pick_folder(c, user)
+                            return
                         if path == "/logout":
                             auth.logout(c, _cookie_token(self.headers.get("Cookie")))
                             self._redirect("/login", self._clear_cookie_header())
@@ -552,8 +559,23 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
             forgot = watcher_mod.forget_tracked_files()
             result["watcher_notified"] = forgot
 
+            # A blank slate with nothing in it looks broken, so put the sample
+            # documents back and process them. That is the state a first run
+            # leaves you in, which is a state somebody can work from.
+            result["rebuilt"] = False
+            try:
+                from . import fixtures, pipeline as pipeline_mod
+
+                if not any(ctx.cfg.source_dir.iterdir()):
+                    fixtures.generate(ctx.cfg.source_dir, clean=True)
+                    pipeline_mod.run(c, ctx.cfg, fresh=False, skip_ingest=False)
+                    result["rebuilt"] = True
+            except Exception as exc:  # noqa: BLE001 - the reset itself succeeded
+                result["rebuild_error"] = str(exc)
+
             auth.audit(c, actor, None, "library_reset",
-                       f"clear_samples={include_source} removed={result['removed']}")
+                       f"clear_samples={include_source} removed={result['removed']} "
+                       f"rebuilt={result['rebuilt']}")
             self._json({"ok": True, **result})
 
         def _handle_set_watch_dir(self, c, actor: str | None, raw: bytes) -> None:
@@ -604,84 +626,23 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
             })
 
         def _handle_pick_folder(self, c, actor: str | None) -> None:
-            """Open a real folder chooser on the computer running this app.
+            """List folders for the console's own folder browser.
 
-            Much better than asking a non-technical user to type a UNC path.
-
-            Only meaningful when the browser is on the same machine. The server
-            binds 0.0.0.0 so colleagues can connect, and a dialog cannot appear
-            on somebody else's screen, so a remote request is refused with an
-            explanation rather than silently doing nothing.
+            The console used to ask this server to open a native folder dialog.
+            That was a mistake: with no desktop session the dialog appears
+            nowhere and never returns, and because the request holds the
+            database lock the entire app stops answering while it waits. Listing
+            folders has none of those problems and works from a browser on
+            another machine, which the native dialog could never do.
             """
-            import platform
-            import subprocess
-            import tempfile
+            from urllib.parse import parse_qs
 
             if not self._require_admin(c, actor):
                 return
 
-            client = self.client_address[0] if self.client_address else ""
-            if client not in ("127.0.0.1", "::1", "localhost"):
-                self._json({
-                    "error": "The folder chooser only works on the computer running "
-                             "this app. A dialog cannot open on someone else's screen, "
-                             "so type the path instead.",
-                }, 400)
-                return
-
-            system = platform.system()
-            try:
-                if system == "Windows":
-                    script = (
-                        "Add-Type -AssemblyName System.Windows.Forms | Out-Null\n"
-                        "$d = New-Object System.Windows.Forms.FolderBrowserDialog\n"
-                        "$d.Description = 'Choose the folder to watch for documents'\n"
-                        "$d.ShowNewFolderButton = $true\n"
-                        "if ($d.ShowDialog() -eq 'OK') { "
-                        "[Console]::Out.Write($d.SelectedPath) }\n"
-                    )
-                    with tempfile.NamedTemporaryFile("w", suffix=".ps1", delete=False,
-                                                     encoding="utf-8") as fh:
-                        fh.write(script)
-                        script_path = fh.name
-                    try:
-                        proc = subprocess.run(
-                            ["powershell", "-NoProfile", "-STA",
-                             "-ExecutionPolicy", "Bypass", "-File", script_path],
-                            capture_output=True, text=True, timeout=300,
-                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                        )
-                    finally:
-                        try:
-                            Path(script_path).unlink()
-                        except OSError:
-                            pass
-                elif system == "Darwin":
-                    proc = subprocess.run(
-                        ["osascript", "-e",
-                         'POSIX path of (choose folder with prompt '
-                         '"Choose the folder to watch for documents")'],
-                        capture_output=True, text=True, timeout=300)
-                else:
-                    # No dependable dialog across Linux desktops, so ask the
-                    # browser to accept a typed path rather than fail.
-                    self._json({"error": "This system has no folder chooser here. "
-                                         "Type the path instead."}, 400)
-                    return
-            except subprocess.TimeoutExpired:
-                self._json({"error": "The folder chooser was left open and timed out."}, 400)
-                return
-            except FileNotFoundError:
-                self._json({"error": "The folder chooser is not available on this "
-                                     "computer. Type the path instead."}, 400)
-                return
-
-            picked = (proc.stdout or "").strip()
-            if not picked:
-                self._json({"ok": False, "cancelled": True})
-                return
-            self._json({"ok": True, "folder": picked})
-
+            query = parse_qs(urlparse(self.path).query)
+            wanted = (query.get("path") or [""])[0]
+            self._json(config_mod.list_folders(wanted))
         def _handle_login(self, c, raw: bytes) -> None:
             from urllib.parse import parse_qs
 

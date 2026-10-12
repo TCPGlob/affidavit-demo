@@ -116,14 +116,17 @@ setTimeout(() => {
   // script is not reachable from outside the vm context. This also exercises
   // the actual loading path rather than poking variables.
   sandbox.refreshAll().then(() => {
-    runChecks();
+    runChecks().catch(e => {
+      check('the checks run to completion', false, e.message);
+      console.log(JSON.stringify(results));
+    });
   }).catch(e => {
     check('the console loads its data', false, e.message);
     console.log(JSON.stringify(results));
   });
 }, 60);
 
-function runChecks() {
+async function runChecks() {
   try {
     const guide = els['guidebody'] ? els['guidebody'].innerHTML : '';
     check('the instructions panel is filled', guide.length > 300, guide.length + ' chars');
@@ -246,23 +249,50 @@ function runChecks() {
     const html = els['sheet'] ? els['sheet'].innerHTML : '';
     check('there is a way to choose a shared folder',
           html.includes('Use a shared folder') || html.includes('Folder to watch'), '');
-    check('it offers a native folder chooser',
+    check('it offers a folder browser',
           html.includes('browseFolder()'), 'Browse button present');
     check('and explains UNC and mapped drives for a network share',
           html.includes('unc') || html.includes('UNC') || html.includes('\\\\server'),
           'network path guidance present');
   } catch (e) { check('there is a way to choose a shared folder', false, e.message); }
 
+  // The Browse button must open the console's own browser and fetch a listing.
+  // It used to ask the server to open a native dialog, which never appeared and
+  // froze the app while the request waited.
+  let asked = null;
   try {
-    let asked = null;
-    const realPost = sandbox.post;
-    sandbox.post = (url, body) => { asked = { url, body }; return Promise.resolve({ok: true, folder: 'D:/Shared'}); };
-    sandbox.browseFolder().then(() => {
-      check('the chooser asks the server to open a dialog',
-            asked && asked.url.includes('pickfolder'), asked ? asked.url : 'never called');
-    });
-    sandbox.post = realPost;
-  } catch (e) { check('the chooser asks the server to open a dialog', false, e.message); }
+    sandbox.fetch = (url) => {
+      asked = String(url);
+      return Promise.resolve({
+        ok: true, status: 200,
+        json: () => Promise.resolve({
+          path: 'C:\\', parent: null, drives: ['C:\\'],
+          folders: [{name: 'Users', path: 'C:\\Users'}, {name: 'Temp', path: 'C:\\Temp'}],
+          error: '',
+        }),
+      });
+    };
+    sandbox.browseFolder();
+    check('the Browse button opens a browser without waiting on the server',
+          (els['sheet'].innerHTML || '').includes('Choose a folder'), '');
+  } catch (e) { check('the Browse button opens a browser without waiting on the server', false, e.message); }
+
+  try {
+    await sandbox.browseTo('');
+    const list = els['fb-list'] ? els['fb-list'].innerHTML : '';
+    check('the browser asks for a listing over HTTP, not a dialog',
+          typeof asked === 'string' && asked.includes('api/pickfolder'),
+          String(asked));
+    check('and renders the folders it was given',
+          list.includes('Users') && list.includes('Temp'), list.slice(0, 80));
+    check('the folder rows are clickable to go deeper',
+          list.includes('browseTo('), '');
+  } catch (e) { check('the browser asks for a listing over HTTP, not a dialog', false, e.message); }
+
+  try {
+    await sandbox.browseTo('C:\\Users');
+    check('browsing into a folder does not throw', true);
+  } catch (e) { check('browsing into a folder does not throw', false, e.message); }
 
   check('every element the script asks for exists in the markup',
         missing.size === 0, [...missing].join(', '));

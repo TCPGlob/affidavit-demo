@@ -92,6 +92,12 @@
   textarea{min-height:86px;line-height:1.5;resize:vertical;font-family:inherit}
   textarea::placeholder{color:#98a2b3}
   .descbox{white-space:pre-wrap;word-break:break-word}
+  /* Folder browser rows */
+  .fbrow{padding:8px 12px;border-bottom:1px solid var(--line);cursor:pointer;
+        font-size:13px;display:flex;align-items:center;gap:8px}
+  .fbrow:last-child{border-bottom:0}
+  .fbrow:hover{background:#eff8ff}
+  .fbfolder{opacity:.75}
   /* A two-way switch for the two kinds of bundle. */
   .segmented{display:inline-flex;background:#f2f4f7;border:1px solid var(--line);
         border-radius:9px;padding:3px;gap:3px}
@@ -891,7 +897,7 @@ function renderSync() {
             <button class="btn sec" onclick="openChangeFolder()">Use a shared folder</button>
           </div>
           <div style="margin-top:8px">
-            <button class="btn sec" onclick="clearLibrary()">Replace the sample documents</button>
+            <button class="btn sec" onclick="clearLibrary()">Clear everything and start again</button>
           </div>
         </div>
       </div>
@@ -988,26 +994,107 @@ function openChangeFolder() {
 }
 
 async function browseFolder() {
-  const btn = document.getElementById('wbrowse');
-  const err = document.getElementById('wderr');
-  const old = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Choosing...';
+  openFolderBrowser('');
+}
+
+/* The console's own folder browser.
+
+   This used to ask the server to open a native file dialog. On a machine with no
+   desktop that dialog appears nowhere and never returns, and because the request
+   held the database lock the whole app froze while it waited. A listing keeps
+   the console responsive, and works from a browser on another computer, which a
+   native dialog could never do. */
+let BROWSE = {path: '', parent: null, folders: [], drives: [], error: ''};
+
+function openFolderBrowser(startPath) {
+  document.getElementById('sheet').innerHTML = `
+    <h2>Choose a folder</h2>
+    <div class="sub">Pick the folder everyone drops documents into. It can be on
+      this computer, on a shared drive, or a folder another service syncs.</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+      <button class="btn sec sm" id="fb-up" onclick="browseUp()">&larr; Up</button>
+      <input type="text" id="fb-path" style="flex:1;font-family:ui-monospace,Menlo,Consolas,monospace"
+        placeholder="Type or paste a path, then press Enter"
+        onkeydown="if(event.key==='Enter'){browseTo(this.value)}">
+      <button class="btn sec sm" onclick="browseTo(document.getElementById('fb-path').value)">Go</button>
+    </div>
+    <div id="fb-list" style="margin-top:12px;max-height:280px;overflow:auto;
+        border:1px solid var(--line);border-radius:8px;background:#fcfcfd">
+      <div class="sub" style="padding:14px">Loading...</div>
+    </div>
+    <div id="fb-err"></div>
+    <div class="sub" style="margin-top:10px">
+      Sub-folders are watched too, so it is fine to choose a folder people keep
+      their own structure inside.
+    </div>
+    <div class="actions">
+      <button class="btn sec" onclick="closeModal();openChangeFolder()">Back</button>
+      <button class="btn primary" id="fb-use" onclick="browseUse()"
+        title="Use the folder shown above">Use this folder</button>
+    </div>`;
+  document.getElementById('modal').classList.add('on');
+  browseTo(startPath || '');
+}
+
+async function browseTo(path) {
+  const list = document.getElementById('fb-list');
+  const err = document.getElementById('fb-err');
+  if (!list) return;
   err.innerHTML = '';
+  list.innerHTML = '<div class="sub" style="padding:14px">Loading...</div>';
   try {
-    const out = await post('api/pickfolder', {});
-    if (out && out.folder) {
-      document.getElementById('wdir').value = out.folder;
-    } else if (out && out.cancelled) {
-      // The user closed the dialog. Nothing to say.
-    } else {
-      err.innerHTML = `<div class="err" style="margin-top:10px">${esc(
-        (out && out.error) || 'The folder chooser did not open. Type the path instead.')}</div>`;
-    }
-  } finally {
-    btn.disabled = false;
-    btn.textContent = old;
+    const r = await fetch('api/pickfolder?path=' + encodeURIComponent(path || ''));
+    if (r.status === 401) { location.href = '/login'; return; }
+    BROWSE = await r.json();
+  } catch (e) {
+    list.innerHTML = '';
+    err.innerHTML = '<div class="err" style="margin-top:10px">Could not read that '
+      + 'folder. Check the path, and that the drive is connected.</div>';
+    return;
   }
+
+  const input = document.getElementById('fb-path');
+  if (input) input.value = BROWSE.path || path || '';
+  document.getElementById('fb-up').disabled = !BROWSE.parent;
+
+  if (BROWSE.error) {
+    err.innerHTML = `<div class="err" style="margin-top:10px">${esc(BROWSE.error)}</div>`;
+  }
+
+  const rows = [];
+  // At a root, offer the drives (or / elsewhere) as places to go.
+  if (!BROWSE.path && BROWSE.drives.length) {
+    for (const d of BROWSE.drives) {
+      rows.push(`<div class="fbrow" onclick="browseTo('${esc(d.replace(/\\/g, '\\\\'))}')">
+        <b>${esc(d)}</b> <span class="sub">drive</span></div>`);
+    }
+  }
+  for (const f of (BROWSE.folders || [])) {
+    rows.push(`<div class="fbrow" onclick="browseTo('${esc(f.path.replace(/\\/g, '\\\\'))}')">
+      <span class="fbfolder">&#128193;</span> ${esc(f.name)}</div>`);
+  }
+  if (!rows.length) {
+    rows.push('<div class="sub" style="padding:14px">No sub-folders here. '
+      + 'You can still use this folder, or type a path above.</div>');
+  }
+  list.innerHTML = rows.join('');
+}
+
+function browseUp() {
+  if (BROWSE.parent) browseTo(BROWSE.parent);
+}
+
+function browseUse() {
+  const path = BROWSE.path || document.getElementById('fb-path').value.trim();
+  if (!path) {
+    document.getElementById('fb-err').innerHTML =
+      '<div class="err" style="margin-top:10px">Choose a drive or folder first.</div>';
+    return;
+  }
+  closeModal();
+  openChangeFolder();
+  const input = document.getElementById('wdir');
+  if (input) input.value = path;
 }
 
 async function doSetFolder() {
@@ -1037,15 +1124,20 @@ async function doSetFolder() {
 
 async function clearLibrary() {
   const chosen = await confirmChoice(
-    'Replace the sample documents?',
-    'The Library is cleared and rebuilt from whatever is in the folder you put ' +
-    'files in. The sample documents created on the first run are removed.',
-    'Clear the samples and start fresh');
+    'Start again with a blank slate?',
+    'The Library is emptied, the collections and the record of what has been ' +
+    'processed are cleared, and the sample documents are put back so you have ' +
+    'something to work with. Documents you have dropped into the folder are ' +
+    'picked up again within a few seconds.',
+    'Clear everything and start again');
   if (!chosen) return;
   const out = await post('api/library/reset', {clear_samples: true});
   if (out && out.ok) {
-    toast('Library cleared. Copy your documents into the drop folder.');
+    toast(out.rebuilt
+      ? 'Cleared. The sample documents have been put back.'
+      : 'Cleared. Drop your documents in and they will appear.');
     await refreshAll();
+    await loadSync();
   } else {
     toast('Could not clear the library');
   }

@@ -78,6 +78,9 @@ jobs:
       - name: Password recovery tests
         run: python recovery_test.py
 
+      - name: Folder browser tests
+        run: python browse_test.py
+
       - name: Legacy affidavit export tests
         run: python e2e_test.py
 
