@@ -424,6 +424,8 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
                             self._handle_export(c, actor, raw)
                         elif path == "/api/ocr":
                             self._handle_ocr_run(c, actor, raw)
+                        elif path == "/api/library/reset":
+                            self._handle_library_reset(c, actor, raw)
                         elif path == "/api/users/create":
                             self._handle_user_create(c, actor, raw)
                         elif path == "/api/users/update":
@@ -434,6 +436,37 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
                             self._send(404, b"not found", "text/plain")
             except Exception as exc:  # noqa: BLE001
                 self._json({"error": str(exc)}, 500)
+
+        def _handle_library_reset(self, c, actor: str | None, raw: bytes) -> None:
+            """Clear the record, for replacing the sample documents with real ones.
+
+            Only generated material is removed. A document the user supplied is
+            never deleted by a button press, so the caller has to say explicitly
+            that it is clearing the sample set.
+            """
+            try:
+                body = json.loads(raw or b"{}")
+            except (json.JSONDecodeError, TypeError):
+                body = {}
+
+            if not self._require_admin(c, actor):
+                return
+
+            include_source = bool(body.get("clear_samples"))
+            result = {"removed": 0}
+            if include_source:
+                result = db.reset_library(c, self.cfg)
+            else:
+                db.reset(c)
+                c.commit()
+                import shutil
+
+                for d in (self.cfg.work_dir / "normalized", self.cfg.work_dir / "ocr"):
+                    shutil.rmtree(d, ignore_errors=True)
+
+            auth.audit(c, actor, None, "library_reset",
+                       f"clear_samples={include_source} removed={result['removed']}")
+            self._json({"ok": True, **result})
 
         def _handle_login(self, c, raw: bytes) -> None:
             from urllib.parse import parse_qs

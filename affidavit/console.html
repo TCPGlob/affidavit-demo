@@ -87,6 +87,23 @@
       padding:6px 8px;border:1px solid #d0d5dd;border-radius:6px;font:inherit;font-size:12.5px;
       width:100%;background:#fff}
   select:focus,input:focus,textarea:focus{outline:2px solid #84caff;outline-offset:-1px}
+  /* Descriptions can run to a paragraph, so they get a real box the user can
+     drag taller, rather than a single line that hides most of the text. */
+  textarea{min-height:86px;line-height:1.5;resize:vertical;font-family:inherit}
+  textarea::placeholder{color:#98a2b3}
+  .descbox{white-space:pre-wrap;word-break:break-word}
+  /* A two-way switch for the two kinds of bundle. */
+  .segmented{display:inline-flex;background:#f2f4f7;border:1px solid var(--line);
+        border-radius:9px;padding:3px;gap:3px}
+  .segmented .seg{display:flex;align-items:center;gap:8px;padding:7px 15px;border:0;
+        background:transparent;border-radius:7px;cursor:pointer;font:inherit;
+        font-size:12.5px;color:#475467}
+  .segmented .seg:hover{background:#e6e9ee}
+  .segmented .seg.on{background:#fff;color:#101828;font-weight:600;
+        box-shadow:0 1px 2px rgba(16,24,40,.10)}
+  .segmented .seg .sub{margin:0;font-weight:400}
+  @media (max-width:620px){ .segmented{display:flex;width:100%}
+        .segmented .seg{flex:1;justify-content:center} }
   .pill{display:inline-block;padding:2px 7px;border-radius:99px;font-size:9.5px;font-weight:700;
         letter-spacing:.04em;margin:2px 3px 0 0;cursor:help}
   .p-ok{background:#d1fadf;color:#05603a} .p-no{background:#fee4e2;color:#912018}
@@ -267,12 +284,24 @@
     <div class="panel" style="padding:14px 16px">
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
         <div class="grow">
-          <b>Collections</b>
-          <div class="sub">A collection is a bundle of documents you intend to turn into an exhibit.
-            Everyone on the team can see and work on every collection.</div>
+          <b>Collections and exhibit bundles</b>
+          <div class="sub">A collection is a bundle of documents you intend to turn into
+            an exhibit bundle. Everyone on the team can see and work on every one.</div>
         </div>
         <button class="btn primary" onclick="openCreate()">+ New collection</button>
       </div>
+      <!-- Two clear views, so neither kind of bundle can be lost. -->
+      <div id="colviewtabs" class="segmented" style="margin-top:13px">
+        <button class="seg on" id="seg-live" onclick="showCollections(false)">
+          <b>In progress</b>
+          <span class="sub" id="seglivecount">0</span>
+        </button>
+        <button class="seg" id="seg-done" onclick="showCollections(true)">
+          <b>Exported bundles</b>
+          <span class="sub" id="segdonecount">0</span>
+        </button>
+      </div>
+      <div class="sub" id="colviewhint" style="margin-top:9px"></div>
     </div>
     <div id="collist" class="cards"></div>
     <div id="colpager"></div>
@@ -351,6 +380,10 @@
 /* ============================== state ============================== */
 let DOCS = [];
 let COLLECTIONS = [];
+let FINISHED = [];            // exported bundles, which have left the live list
+let FINISHED_DIR = '';
+let LIVE_DIR = '';
+let SHOW_FINISHED = false;    // showing exported bundles rather than drafts
 let ME = null;
 let HELP = null;
 let OPEN_COLLECTION = null;   // id when viewing one collection
@@ -376,10 +409,16 @@ async function refreshAll() {
   else { who.textContent = ''; out.style.display = 'none'; }
 
   const rc = await fetch('api/collections');
-  COLLECTIONS = (await rc.json()).collections || [];
+  const cols = await rc.json();
+  COLLECTIONS = cols.collections || [];
+  FINISHED = cols.finished || [];
+  FINISHED_DIR = cols.finished_dir || '';
+  LIVE_DIR = cols.collections_dir || '';
 
   document.getElementById('libcount').textContent = DOCS.length;
-  document.getElementById('colcount').textContent = COLLECTIONS.length;
+  // The badge counts both, because an exported bundle is still a bundle the
+  // user needs to be able to find again.
+  document.getElementById('colcount').textContent = COLLECTIONS.length + FINISHED.length;
   try {
     const rt = await fetch('api/team');
     if (rt.ok) {
@@ -769,11 +808,19 @@ function renderSync() {
       <div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">
         <div class="grow">
           <b>${esc(headline)}</b>
-          <div class="sub" style="margin-top:4px">
-            Copy files into this folder and they appear here on their own:
+          <div class="sub" style="margin-top:6px">
+            <b>This is the only folder you put files in.</b> Copy your documents
+            here and they appear in the Library on their own. Nothing to run.
           </div>
           <div class="path" style="margin-top:5px">${esc(s.watch_dir)}</div>
-          <div class="sub" style="margin-top:6px">
+          <div class="sub" style="margin-top:7px">
+            Sub-folders are fine, and your files are copied, never moved.
+          </div>
+          <div class="sub" style="margin-top:5px">
+            Do not put files in <code>intake\\source</code>. That is the system's
+            own copy of the Library.
+          </div>
+          <div class="sub" style="margin-top:7px">
             Last checked ${esc(ago)}${s.owner ? ` &middot; watched by ${esc(s.owner)}` : ''}
             ${!s.alive && s.ever_run
               ? ' &middot; dropped files will not be picked up until it runs again'
@@ -785,8 +832,92 @@ function renderSync() {
               If that is not intended, point the drop folder at local storage.
             </div>` : ''}
         </div>
+        <div style="flex:0 0 auto;text-align:right">
+          <button class="btn sec" onclick="openFolderHelp()">Where do I put files?</button>
+          <div style="margin-top:8px">
+            <button class="btn sec" onclick="clearLibrary()">Replace the sample documents</button>
+          </div>
+          <div class="sub" style="margin-top:6px;max-width:190px">
+            Clears the samples so you can work with your own.
+          </div>
+        </div>
       </div>
     </div>`;
+}
+
+function openFolderHelp() {
+  document.getElementById('sheet').innerHTML = `
+    <h2>Where do I put files?</h2>
+    <p style="font-size:13.5px;line-height:1.6">
+      There is one folder for you, and one that belongs to the system.
+    </p>
+    <div class="panel" style="padding:12px 14px;margin:12px 0;border-left:4px solid var(--ok)">
+      <b>Put your documents here</b>
+      <div class="path" style="margin-top:5px">${esc(SYNC && SYNC.status ? SYNC.status.watch_dir : 'intake/incoming')}</div>
+      <div class="sub" style="margin-top:6px">
+        Copy files in and they are picked up on their own, usually within a few
+        seconds. Files are <b>copied, never moved</b>, so your originals stay
+        where they are, untouched.
+      </div>
+    </div>
+    <div class="panel" style="padding:12px 14px;margin:12px 0;border-left:4px solid var(--line)">
+      <b>Do not put documents here</b>
+      <div class="path" style="margin-top:5px">intake\\source</div>
+      <div class="sub" style="margin-top:6px">
+        This is the system's own copy of everything it has received. It fills
+        itself. Files you put here are not watched, and they sit still until a
+        command is run.
+      </div>
+    </div>
+    <div class="panel" style="padding:12px 14px;margin:12px 0;border-left:4px solid var(--line)">
+      <b>Sub-folders are fine</b>
+      <div class="sub" style="margin-top:6px">
+        Keep your own structure inside the folder above. It is preserved in the
+        Library.
+      </div>
+    </div>
+    <div class="sub">
+      On the first run this program puts <b>sample documents</b> in the Library so
+      there is something to look at. That is why <code>intake\\source</code> has
+      files in it and your folder is empty. Use <b>Replace the sample documents</b>
+      when you are ready to use your own.
+    </div>
+    <div class="actions">
+      <button class="btn primary" onclick="closeModal()">Got it</button>
+    </div>`;
+  document.getElementById('modal').classList.add('on');
+}
+
+async function clearLibrary() {
+  const chosen = await confirmChoice(
+    'Replace the sample documents?',
+    'The Library is cleared and rebuilt from whatever is in the folder you put ' +
+    'files in. The sample documents created on the first run are removed.',
+    'Clear the samples and start fresh');
+  if (!chosen) return;
+  const out = await post('api/library/reset', {clear_samples: true});
+  if (out && out.ok) {
+    toast('Library cleared. Copy your documents into the drop folder.');
+    await refreshAll();
+  } else {
+    toast('Could not clear the library');
+  }
+}
+
+/* A confirmation that says what the confirm button does, unlike confirm(). */
+function confirmChoice(title, body, actionLabel) {
+  return new Promise(resolve => {
+    document.getElementById('sheet').innerHTML = `
+      <h2>${esc(title)}</h2>
+      <p style="font-size:13.5px;line-height:1.6">${esc(body)}</p>
+      <div class="actions">
+        <button class="btn sec" id="cx">Cancel</button>
+        <button class="btn primary" id="cy">${esc(actionLabel)}</button>
+      </div>`;
+    document.getElementById('modal').classList.add('on');
+    document.getElementById('cx').onclick = () => { closeModal(); resolve(false); };
+    document.getElementById('cy').onclick = () => { closeModal(); resolve(true); };
+  });
 }
 
 /* ============================== ocr ============================== */
@@ -1001,9 +1132,82 @@ async function addTag(docId, input) {
 }
 
 /* ============================== collections ============================== */
+function showCollections(finished) {
+  SHOW_FINISHED = !!finished;
+  OPEN_COLLECTION = null;
+  renderCollections();
+}
+
+function renderCollectionSwitch() {
+  const live = document.getElementById('seglivecount');
+  const done = document.getElementById('segdonecount');
+  const hint = document.getElementById('colviewhint');
+  if (!live) return;
+  live.textContent = COLLECTIONS.length;
+  done.textContent = FINISHED.length;
+  document.getElementById('seg-live').classList.toggle('on', !SHOW_FINISHED);
+  document.getElementById('seg-done').classList.toggle('on', SHOW_FINISHED);
+
+  hint.innerHTML = SHOW_FINISHED
+    ? (FINISHED.length
+        ? `Bundles that have been exported and are ready to import into Zibbit.
+           They live in <code>${esc(FINISHED_DIR)}</code>.`
+        : `No bundles have been exported yet. When you use
+           <b>Convert &amp; export</b> on a collection it moves here and leaves the
+           <b>In progress</b> list. Nothing is deleted.`)
+    : `Work still being assembled. Exporting one moves it to
+       <b>Exported bundles</b>.`;
+}
+
+function renderFinished() {
+  const el = document.getElementById('collist');
+  document.getElementById('codetail').style.display = 'none';
+  document.getElementById('colpager').style.display = 'none';
+  el.style.display = '';
+
+  if (!FINISHED.length) {
+    el.innerHTML = `<div class="panel" style="padding:22px;grid-column:1/-1">
+      <b>Nothing exported yet.</b>
+      <div class="sub" style="margin-top:4px">
+        Open a collection, tick what belongs in it, then use
+        <b>Convert &amp; export</b>. The bundle moves here and leaves the
+        <b>In progress</b> list so the console shows live work only.
+      </div>
+      <div class="sub" style="margin-top:8px">
+        Nothing is deleted: the files are written to
+        <code>${esc(FINISHED_DIR)}</code>.
+      </div></div>`;
+    return;
+  }
+
+  const rows = FINISHED.slice().reverse().map(c => {
+    const when = (c.exported_at || '').replace('T', ' ').slice(0, 16);
+    const who = c.exported_by ? ` by ${esc(c.exported_by)}` : '';
+    return `<div class="card">
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <div class="grow">
+          <div class="nm">${esc(c.name)}</div>
+          <div class="sub">${c.item_count} document(s) &middot; ${c.page_total} page(s)</div>
+          ${c.description ? `<div class="cm descbox">${esc(c.description)}</div>` : ''}
+          <div class="sub" style="margin-top:7px">
+            Exported ${when ? esc(when) : 'earlier'}${who}
+          </div>
+        </div>
+        <span class="pill p-ok" title="The COMPLETE marker was written, so the bundle is finished.">EXPORTED</span>
+      </div>
+      <div class="actions" style="margin-top:11px">
+        <button class="btn sec" onclick="copyText('${esc(FINISHED_DIR)}\\${esc(c.name)}', this)">
+          Copy the folder path</button>
+      </div>
+    </div>`;
+  }).join('');
+  el.innerHTML = rows;
+}
 function renderCollections() {
   // Do not fight the Team tab for the screen.
   if (document.getElementById('view-col').style.display === 'none') return;
+  renderCollectionSwitch();
+  if (SHOW_FINISHED) { renderFinished(); return; }
   if (OPEN_COLLECTION) return;
   const el = document.getElementById('collist');
   document.getElementById('codetail').style.display = 'none';
@@ -1019,7 +1223,11 @@ function renderCollections() {
       <div class="sub" style="margin-top:8px">
         On <b>Convert &amp; export</b> the bundle moves to the finished folder and
         leaves this list, so what you see here is live work only.
-      </div></div>`;
+      </div>
+      ${FINISHED.length ? `<div class="sub" style="margin-top:8px">
+        <b>${FINISHED.length}</b> exported bundle(s) are under
+        <a href="#" onclick="showCollections(true);return false">Exported bundles</a>.
+      </div>` : ''}</div>`;
     return;
   }
   // Page the cards too: a team accumulates finished and draft bundles over time.
@@ -1241,7 +1449,8 @@ function openCreate(fromSelection, ids) {
     <label for="cname">Collection name</label>
     <input id="cname" placeholder="e.g. Harbourview Exhibit Bundle - Volume 1" autofocus>
     <label for="cdesc">Description <span class="sub">(optional)</span></label>
-    <input id="cdesc" placeholder="e.g. Trial bundle, volume 1">
+    <textarea id="cdesc" rows="4"
+      placeholder="What this bundle is for, who it is for, or anything a colleague needs to know. For example: Trial bundle for the Harbourview matter, volume 1 of 3. Contains the pleadings and the expert reports served to date."></textarea>
     <div class="sub" style="margin-top:12px">
       ${PENDING_ADD.length
         ? `<b>${PENDING_ADD.length}</b> selected document(s) will be added and converted.`
@@ -1349,7 +1558,8 @@ function promptText(label, current) {
     document.getElementById('sheet').innerHTML = `
       <h2>${esc(label)}</h2>
       <label for="ptext">Description</label>
-      <input id="ptext" value="${esc(current)}">
+      <textarea id="ptext" rows="5"
+        placeholder="What this bundle is for, and anything a colleague needs to know.">${esc(current)}</textarea>
       <div class="actions">
         <button class="btn sec" id="pcancel">Cancel</button>
         <button class="btn primary" id="pok">Save</button>
@@ -1371,6 +1581,26 @@ async function deleteCollection(cid) {
   closeCollection();
   await refreshAll();
   toast('Collection deleted');
+}
+
+function copyText(text, btn) {
+  const done = () => {
+    const old = btn.textContent;
+    btn.textContent = 'Copied';
+    setTimeout(() => { btn.textContent = old; }, 1400);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => fallback());
+  } else { fallback(); }
+  function fallback() {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); }
+    catch (e) { toast(text); }
+    document.body.removeChild(ta);
+  }
 }
 
 /* ============================== export ============================== */

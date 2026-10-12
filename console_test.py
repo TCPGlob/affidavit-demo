@@ -76,7 +76,9 @@ const sandbox = {
     if (u.includes('api/help')) body = help;
     else if (u.includes('api/documents')) body = docs;
     else if (u.includes('api/collections'))
-      body = { collections: docs.collections || [], finished: [], finished_dir: '/x/finished' };
+      body = { collections: docs.collections || [], finished: docs.finished || [],
+               collections_dir: docs.collections_dir || '/x/collections',
+               finished_dir: docs.finished_dir || '/x/collections/finished' };
     else if (u.includes('api/ocr'))
       body = { engine_available: true, engine: 'tesseract', default_language: 'eng',
                unread: 1, read: 2, no_text: 1, failed: 0, characters: 265, languages: ['eng'] };
@@ -110,6 +112,18 @@ try {
 
 // boot() resolves its fetches on microtasks; let them settle.
 setTimeout(() => {
+  // Load state through the real function, because a top-level `let` in the
+  // script is not reachable from outside the vm context. This also exercises
+  // the actual loading path rather than poking variables.
+  sandbox.refreshAll().then(() => {
+    runChecks();
+  }).catch(e => {
+    check('the console loads its data', false, e.message);
+    console.log(JSON.stringify(results));
+  });
+}, 60);
+
+function runChecks() {
   try {
     const guide = els['guidebody'] ? els['guidebody'].innerHTML : '';
     check('the instructions panel is filled', guide.length > 300, guide.length + ' chars');
@@ -156,11 +170,63 @@ setTimeout(() => {
     check('Collections render without error', true);
   } catch (e) { check('Collections render without error', false, e.message); }
 
+  // The two-way switch between drafts and exported bundles. A finished bundle
+  // must be findable, since exporting removes it from the live list.
+  try {
+    sandbox.showCollections(true);
+    const fin = els['collist'] ? els['collist'].innerHTML : '';
+    check('the exported bundles view renders', fin.length > 50, fin.length + ' chars');
+    check('and it shows the finished folder path, so the file can be found',
+          fin.includes('finished') || fin.includes('Copy the folder path'),
+          fin.slice(0, 90));
+  } catch (e) { check('the exported bundles view renders', false, e.message); }
+
+  try {
+    sandbox.showCollections(false);
+    const live = els['collist'] ? els['collist'].innerHTML : '';
+    check('switching back to in-progress works', live.length > 20, live.length + ' chars');
+  } catch (e) { check('switching back to in-progress works', false, e.message); }
+
+  try {
+    const hint = els['colviewhint'] ? els['colviewhint'].innerHTML : '';
+    check('the view switch explains itself', hint.length > 20, hint.slice(0, 70));
+  } catch (e) { check('the view switch explains itself', false, e.message); }
+
+  // The description box must be a real multi-line box, not a single line.
+  try {
+    sandbox.openCreate();
+    const html = els['sheet'] ? els['sheet'].innerHTML : '';
+    check('the description is a multi-line box',
+          /<textarea[^>]*id="cdesc"/.test(html), 'textarea present');
+    check('and it invites a useful description, not a two-word label',
+          html.includes('placeholder') && html.includes('For example'),
+          'placeholder present');
+  } catch (e) { check('the description is a multi-line box', false, e.message); }
+
+  try {
+    sandbox.closeModal();
+    sandbox.promptText('Description', 'existing text');
+    const html = els['sheet'] ? els['sheet'].innerHTML : '';
+    check('editing an existing description also uses a multi-line box',
+          /<textarea[^>]*id="ptext"/.test(html), 'textarea present');
+  } catch (e) { check('editing an existing description also uses a multi-line box', false, e.message); }
+
+  // The folder guidance must name the folder to use and the one to avoid.
+  try {
+    sandbox.closeModal();
+    sandbox.openFolderHelp();
+    const html = els['sheet'] ? els['sheet'].innerHTML : '';
+    check('the folder help names the folder to put files in',
+          html.includes('Put your documents here'), '');
+    check('and names the one to avoid',
+          html.includes('Do not put documents here'), '');
+  } catch (e) { check('the folder help names the folder to put files in', false, e.message); }
+
   check('every element the script asks for exists in the markup',
         missing.size === 0, [...missing].join(', '));
 
   console.log(JSON.stringify(results));
-}, 60);
+}
 """
 
 
@@ -248,7 +314,16 @@ def main() -> int:
                 ],
                 "collections": [{"id": 1, "name": "Bundle A", "item_count": 1,
                                  "page_total": 1, "created_by": "jane",
-                                 "description": "", "version": 1}],
+                                 "description": "Trial bundle, volume 1.",
+                                 "version": 1}],
+                "finished": [{"id": 2, "name": "Harbourview Exhibit Bundle",
+                              "item_count": 4, "page_total": 12,
+                              "created_by": "jane", "exported_by": "jane",
+                              "exported_at": "2026-10-12T09:30:00+00:00",
+                              "description": "Volume 1 of 3. Pleadings and expert reports.",
+                              "version": 1}],
+                "collections_dir": "/x/collections",
+                "finished_dir": "/x/collections/finished",
             }), encoding="utf-8")
             harness.write_text(RUNTIME_HARNESS, encoding="utf-8")
 
