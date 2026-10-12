@@ -48,10 +48,18 @@
   main{padding:16px 20px 110px;max-width:1560px}
   .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:16px}
   .panel > summary{padding:13px 16px;cursor:pointer;font-weight:600;font-size:14px;list-style:none;
-        display:flex;gap:10px;align-items:center}
+        display:flex;gap:10px;align-items:center;user-select:none}
   .panel > summary::-webkit-details-marker{display:none}
-  .panel > summary::before{content:"\25B8";color:var(--mut);transition:transform .15s}
+  /* The arrow is the affordance for collapsing the panel, so it is styled as a
+     control rather than decoration: a raised chip that brightens on hover, with
+     the entire header row clickable. */
+  .panel > summary::before{content:"\25B8";color:var(--mut);display:inline-flex;
+        align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;
+        background:#f2f4f7;font-size:11px;flex:0 0 auto;
+        transition:transform .18s ease,background .15s,color .15s}
+  .panel > summary:hover::before{background:#d1e9ff;color:#175cd3}
   .panel[open] > summary::before{transform:rotate(90deg)}
+  .panel > summary:focus-visible{outline:2px solid #84caff;outline-offset:-2px;border-radius:8px}
   .pbody{padding:0 16px 18px}
   .hintline{color:var(--mut);font-size:12px;font-weight:400}
 
@@ -167,12 +175,13 @@
   <!-- ===================== GUIDE ===================== -->
   <details class="panel" id="guide" open>
     <summary onclick="toggleGuide()">How this works &mdash; read this first
-      <span class="hintline">(click to collapse)</span></summary>
+      <span class="hintline" id="guidehint">click the arrow to hide these instructions</span></summary>
     <div class="pbody" id="guidebody"></div>
   </details>
 
   <!-- ===================== LIBRARY ===================== -->
   <section id="view-lib">
+    <div id="syncpanel"></div>
     <div id="ocrpanel"></div>
     <div class="tablewrap">
       <div class="bar">
@@ -192,6 +201,7 @@
           <input type="checkbox" id="all" onclick="toggleAll(this)" style="width:auto"> Select all shown
         </label>
       </div>
+      <div id="libpager"></div>
       <table>
         <thead><tr>
           <th style="width:34px"></th>
@@ -222,6 +232,7 @@
       </div>
     </div>
     <div id="collist" class="cards"></div>
+    <div id="colpager"></div>
     <div id="codetail" style="display:none"></div>
   </section>
 
@@ -308,6 +319,7 @@ async function refreshAll() {
   } catch (e) {}
   renderLibrary();
   renderCollections();
+  loadSync();
   loadOcr();
   if (OPEN_COLLECTION) await openCollection(OPEN_COLLECTION, true);
   if (document.getElementById('view-team').style.display !== 'none') renderTeam();
@@ -342,6 +354,12 @@ function toggleGuide() {
   const g = document.getElementById('guide');
   g.open = !g.open;
   document.getElementById('guidebtn').textContent = g.open ? 'Hide instructions' : 'Instructions';
+  const hint = document.getElementById('guidehint');
+  if (hint) {
+    hint.textContent = g.open
+      ? 'click the arrow to hide these instructions'
+      : 'click the arrow to show these instructions again';
+  }
   try { localStorage.setItem('aodGuide', g.open ? '1' : '0'); } catch (e) {}
 }
 
@@ -608,6 +626,98 @@ async function doChangePassword() {
   toast('Your password has been changed');
 }
 
+/* ============================== paging ============================== */
+/* A large matter can run to hundreds of documents. Rendering them all makes
+   the page slow to build and impossible to scan, so the list is paged. */
+const PAGE_SIZE = 50;
+const COLLECTION_PAGE_SIZE = 12;
+let libPage = 1;
+let colPage = 1;
+let colPageCount = 1;
+let lastLibTotal = 0;
+
+function pagerHtml(kind, page, pages, total, shown) {
+  if (pages <= 1) return '';
+  const btn = (label, target, disabled) =>
+    `<button class="btn sec sm" ${disabled ? 'disabled' : ''}
+             onclick="gotoPage('${kind}', ${target})">${label}</button>`;
+  return `<div class="bar" style="border-bottom:1px solid var(--line)">
+      <span class="sub">Showing <b>${shown}</b> of <b>${total}</b>
+        &middot; page ${page} of ${pages}</span>
+      <span class="grow"></span>
+      ${btn('&laquo; First', 1, page === 1)}
+      ${btn('&lsaquo; Previous', page - 1, page === 1)}
+      ${btn('Next &rsaquo;', page + 1, page === pages)}
+      ${btn('Last &raquo;', pages, page === pages)}
+    </div>`;
+}
+
+function gotoPage(kind, page) {
+  if (kind === 'lib') {
+    libPage = page;
+    renderLibrary();
+    document.getElementById('libpager').scrollIntoView({block: 'start', behavior: 'smooth'});
+  } else {
+    colPage = page;
+    renderCollections();
+  }
+}
+
+/* ============================== drop folder ============================== */
+let SYNC = null;
+
+async function loadSync() {
+  try {
+    const r = await fetch('api/sync');
+    if (r.ok) { SYNC = await r.json(); renderSync(); }
+  } catch (e) {}
+}
+
+function renderSync() {
+  const el = document.getElementById('syncpanel');
+  if (!SYNC || !SYNC.status) { el.innerHTML = ''; return; }
+  const s = SYNC.status;
+
+  let tone = 'var(--ok)';
+  let headline = 'Watching for dropped files';
+  if (s.cloud_warning) {
+    tone = 'var(--warn)';
+    headline = 'Drop folder is inside a cloud-synced folder';
+  } else if (!s.alive) {
+    tone = 'var(--warn)';
+    headline = s.ever_run ? 'The folder watcher has stopped'
+                          : 'The folder watcher has not started yet';
+  }
+
+  const ago = s.seconds_since_heartbeat == null ? 'never'
+    : s.seconds_since_heartbeat < 90 ? `${s.seconds_since_heartbeat}s ago`
+    : `${Math.round(s.seconds_since_heartbeat / 60)} min ago`;
+
+  el.innerHTML = `
+    <div class="panel" style="padding:13px 16px;border-left:5px solid ${tone}">
+      <div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">
+        <div class="grow">
+          <b>${esc(headline)}</b>
+          <div class="sub" style="margin-top:4px">
+            Copy files into this folder and they appear here on their own:
+          </div>
+          <div class="path" style="margin-top:5px">${esc(s.watch_dir)}</div>
+          <div class="sub" style="margin-top:6px">
+            Last checked ${esc(ago)}${s.owner ? ` &middot; watched by ${esc(s.owner)}` : ''}
+            ${!s.alive && s.ever_run
+              ? ' &middot; dropped files will not be picked up until it runs again'
+              : ''}
+          </div>
+          ${s.cloud_warning ? `
+            <div class="sub" style="margin-top:8px;color:var(--warn)">
+              Documents placed here are copied to ${esc(s.cloud_warning)}.
+              If that is not intended, point the drop folder at local storage.
+            </div>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
 /* ============================== ocr ============================== */
 let OCR = null;
 
@@ -736,7 +846,25 @@ function renderLibrary() {
       .join(' ').toLowerCase().includes(q));
   }
 
-  document.getElementById('librows').innerHTML = list.map(d => {
+  // A changed filter or search starts the list again from page one; otherwise
+  // the user lands on a page that no longer exists.
+  if (renderLibrary._key !== (f + '|' + q)) {
+    renderLibrary._key = f + '|' + q;
+    libPage = 1;
+  }
+
+  // Page the filtered list.
+  const total = list.length;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (libPage > pages) libPage = pages;
+  if (libPage < 1) libPage = 1;
+  if (total !== lastLibTotal) { lastLibTotal = total; }
+  const start = (libPage - 1) * PAGE_SIZE;
+  const shownList = list.slice(start, start + PAGE_SIZE);
+  document.getElementById('libpager').innerHTML =
+    pagerHtml('lib', libPage, pages, total, shownList.length);
+
+  document.getElementById('librows').innerHTML = shownList.map(d => {
     const conv = d.pdf_status !== 'ok' && d.pdf_status !== 'passthrough';
     const badges = [
       d.needs_ocr ? '<span class="pill p-ocr" title="A scan with no readable text. It still exports, but its contents have not been read - open it to check.">OCR NEEDED</span>' : '',
@@ -768,8 +896,8 @@ function renderLibrary() {
         ? inCols.map(n => `<span class="tagchip">${esc(n)}</span>`).join('')
         : '&mdash;'}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="8" class="empty">
-      Nothing matches. ${f !== 'all' ? 'Try &ldquo;All documents&rdquo;.' : 'Drop files into the intake folder and run the pipeline.'}
+  }).join('') || `<tr><td colspan="9" class="empty">
+      Nothing matches. ${f !== 'all' ? 'Try &ldquo;All documents&rdquo;.' : 'Copy files into the drop folder and they will appear here.'}
     </td></tr>`;
 
   const total = DOCS.length, ready = DOCS.filter(d => !d.needs_ocr && d.pdf_status === 'ok' || d.pdf_status === 'passthrough').length;
@@ -801,18 +929,33 @@ function renderCollections() {
   if (OPEN_COLLECTION) return;
   const el = document.getElementById('collist');
   document.getElementById('codetail').style.display = 'none';
+  document.getElementById('colpager').style.display = '';
   el.style.display = '';
   if (!COLLECTIONS.length) {
     el.innerHTML = `<div class="panel" style="padding:22px;grid-column:1/-1">
-      <b>No collections yet.</b>
+      <b>No collections in progress.</b>
       <div class="sub" style="margin-top:4px">
         Tick documents in the <a href="#" onclick="showTab('lib');return false">Library</a>,
         then use <b>+ New collection</b> on the black bar to name your bundle.
+      </div>
+      <div class="sub" style="margin-top:8px">
+        On <b>Convert &amp; export</b> the bundle moves to the finished folder and
+        leaves this list, so what you see here is live work only.
       </div></div>`;
     return;
   }
-  el.innerHTML = COLLECTIONS.map(c => {
-    const warn = (c.not_converted || 0) + (c.needs_ocr || 0);
+  // Page the cards too: a team accumulates finished and draft bundles over time.
+  const total = COLLECTIONS.length;
+  const pages = Math.max(1, Math.ceil(total / COLLECTION_PAGE_SIZE));
+  if (colPage > pages) colPage = pages;
+  if (colPage < 1) colPage = 1;
+  colPageCount = pages;
+  const start = (colPage - 1) * COLLECTION_PAGE_SIZE;
+  const shown = COLLECTIONS.slice(start, start + COLLECTION_PAGE_SIZE);
+  document.getElementById('colpager').innerHTML =
+    pagerHtml('col', colPage, pages, total, shown.length);
+
+  el.innerHTML = shown.map(c => {
     return `<div class="ccard" onclick="openCollection(${c.id})">
       <div class="ct">${esc(c.name)}</div>
       <div class="cm">${esc(c.description || 'No description')}</div>
@@ -835,6 +978,7 @@ async function openCollection(id, silent) {
   const data = await r.json();
   const c = data.collection, items = data.items || [];
   document.getElementById('collist').style.display = 'none';
+  document.getElementById('colpager').style.display = 'none';
   const detail = document.getElementById('codetail');
   detail.style.display = '';
 
@@ -1180,6 +1324,10 @@ async function exportCollection(cid, nameHint) {
         already in the order shown.
         <b>${esc(out.cover_doc || 'The cover document')}</b> is a readable index for
         your own reference &mdash; Zibbit does not need it.
+      </div>
+      <div class="sub" style="margin-top:6px">
+        This bundle has moved to the <b>finished</b> folder and no longer appears
+        under Collections.
       </div>
       <div class="path">${esc(out.bundle)}</div>
       ${skipped.length ? `

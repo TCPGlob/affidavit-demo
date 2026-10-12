@@ -37,6 +37,66 @@ bundle list without opening eight PDFs.
 
 ---
 
+## The drop folder — copy a file and it appears
+
+```bash
+python pipeline.py review        # console and watcher together
+python pipeline.py watch         # the watcher on its own
+python pipeline.py watch --once  # a single pass, for testing
+```
+
+Copy documents into **`intake/incoming/`** and they are picked up within a few
+seconds: copied into the library, converted, read, and listed in the console.
+Nobody has to run anything, and the console shows the folder path and when it
+was last checked.
+
+This is what turns the tool into something a team relies on rather than something
+someone remembers to run.
+
+| Behaviour | Why |
+|---|---|
+| Your file is **copied, never moved** | Deleting or moving somebody's document is not this program's business, and a failed copy must not lose the only copy |
+| Taken only once its size stops changing | Copying a 200MB scan takes time; ingesting half of one is worse than waiting |
+| `.crdownload`, `.part`, `.tmp`, `~$` ignored | They are half-written, not documents |
+| Polling rather than filesystem events | No dependency, and it behaves predictably with cloud-synced folders that deliver files in bursts |
+| One watcher per drop folder | A lock row in the database; two watchers would duplicate work |
+| Only new documents are processed | Re-running the whole pipeline per drop is O(n²) — 500 documents would mean 125,000 passes |
+
+The drop folder can itself be a **shared or synced folder**, so a colleague can
+drop a file in from another computer. If it sits inside OneDrive, Dropbox or
+Google Drive, the console says so: documents placed there are being copied to
+that service, and that should be a decision rather than an accident.
+
+If a file cannot be copied or read, a note is written to `intake/rejected/` with
+the reason. **Your original is left alone.**
+
+---
+
+## Bundles finish and leave the console
+
+Draft collections sit in `output/collections/` and stay in the Collections list
+until you export them. **Exporting moves the bundle to
+`output/collections/finished/` and it disappears from the console** — what you
+see there is live work only.
+
+```
+output/collections/
+├── finished/
+│   └── Service Bundle/
+│       ├── PDFs/001 - Affidavit of Service.pdf
+│       ├── index.csv
+│       ├── manifest.json
+│       ├── 00 - Service Bundle - Index.docx
+│       └── COMPLETE          <- written last, carries a hash of everything else
+└── archive/                  <- optional, your own arrangement
+```
+
+The `COMPLETE` marker is the contract: any tool consuming a bundle should wait
+for it, because its absence means the bundle is half-written. It contains a hash
+of every other file, so a later modification is detectable.
+
+---
+
 ## Quick start — one machine
 
 ```bash

@@ -203,8 +203,15 @@ def run(conn, cfg: Config, fresh: bool = False, skip_ingest: bool = False,
     # ---------------------------------------------------------- 3. extract
     print("Step 3/4  Extracting text and metadata")
     rows = conn.execute(
-        "SELECT * FROM documents WHERE pdf_path IS NOT NULL ORDER BY id"
+        "SELECT * FROM documents WHERE pdf_path IS NOT NULL AND profiled_at IS NULL "
+        "ORDER BY id"
     ).fetchall()
+    already = conn.execute(
+        "SELECT COUNT(*) c FROM documents WHERE pdf_path IS NOT NULL "
+        "AND profiled_at IS NOT NULL"
+    ).fetchone()["c"]
+    if already:
+        print(f"          {already} document(s) already read, skipping")
     parties = parties_from_config(cfg)
     ocr_needed = 0
 
@@ -224,6 +231,7 @@ def run(conn, cfg: Config, fresh: bool = False, skip_ingest: bool = False,
                  page_count=?, text_chars=?, has_text_layer=?, needs_ocr=?,
                  title_guess=?, doc_type=?, doc_date=?, date_source=?,
                  privilege_flags=?, party_hits=?, summary=?, text_fingerprint=?,
+                 profiled_at=?,
                  status_detail=CASE WHEN ?<>'' THEN ? ELSE status_detail END
                WHERE id=?""",
             (
@@ -239,6 +247,7 @@ def run(conn, cfg: Config, fresh: bool = False, skip_ingest: bool = False,
                 json.dumps(ex.party_hits),
                 ex.summary,
                 ex.text_fingerprint,
+                db.utcnow(),
                 ex.error,
                 ex.error,
                 row["id"],
@@ -277,6 +286,103 @@ def run(conn, cfg: Config, fresh: bool = False, skip_ingest: bool = False,
     _suggest_privilege(conn)
     _report_metrics(conn, cfg)
     return {"tools": {k: v.available for k, v in tools.items()}, "ocr": ocr_stats}
+
+
+def process_pending(conn, cfg: Config, tools: dict | None = None,
+                    ocr: bool = True) -> dict:
+    """Convert, extract and read only the documents that have not been done yet.
+
+    This is what makes a folder watcher viable. Running the whole pipeline on
+    every dropped file is O(n^2) -- with 500 documents that is 125,250 passes.
+    Here each pass converts only documents with no PDF yet, so dropping one file
+    into a large matter costs one file's work.
+    """
+    if tools is None:
+        tools = {t.name: t for t in detect_toolchain()}
+
+    todo = conn.execute(
+        "SELECT * FROM documents WHERE pdf_path IS NULL OR pdf_status IS NULL"
+    ).fetchall()
+
+    converted = 0
+    for row in todo:
+        src = cfg.source_dir / row["canonical_src"]
+        if not src.exists():
+            conn.execute(
+                "UPDATE documents SET pdf_status='failed', status_detail=? WHERE id=?",
+                (f"source file missing: {row['canonical_src']}", row["id"]),
+            )
+            conn.commit()
+            continue
+
+        out_path = cfg.normalized_dir / build_filename(cfg, row)
+        res = convert_to_pdf(src, out_path, tools)
+
+        final = None
+        if res.status in ("ok", "passthrough"):
+            final = Path(res.pdf_path) if res.pdf_path else None
+            if final and final != out_path and final.exists():
+                shutil.copy2(final, out_path)
+                final = out_path
+            converted += 1
+        elif res.status == "skipped_no_converter":
+            final = Path(res.pdf_path) if res.pdf_path else None
+
+        pages = res.page_count
+        if pages is None and final and final.exists():
+            pages = pdf_page_count(final)
+
+        conn.execute(
+            """UPDATE documents SET pdf_path=?, pdf_status=?, status_detail=?,
+                   page_count=? WHERE id=?""",
+            (str(final) if final else None, res.status, res.detail[:400], pages,
+             row["id"]),
+        )
+        conn.commit()
+
+    # Profile anything converted but not yet read. profiled_at, not
+    # text_fingerprint: ingest() already sets a fingerprint from the raw text,
+    # so that column cannot distinguish "read" from "not read".
+    pending = conn.execute(
+        "SELECT * FROM documents WHERE pdf_path IS NOT NULL AND profiled_at IS NULL"
+    ).fetchall()
+    parties = parties_from_config(cfg)
+    extracted = 0
+
+    for row in pending:
+        ex = extract.extract(Path(row["pdf_path"]), Path(row["canonical_src"]).name,
+                             parties)
+        if row["pdf_status"] == "skipped_no_converter":
+            ex.privilege_flags = []
+        conn.execute(
+            """UPDATE documents SET
+                 page_count=COALESCE(?, page_count), text_chars=?,
+                 has_text_layer=?, needs_ocr=?, title_guess=?, doc_type=?,
+                 doc_date=?, date_source=?, privilege_flags=?, party_hits=?,
+                 summary=?, text_fingerprint=?, profiled_at=? WHERE id=?""",
+            (ex.page_count, len(ex.text), 1 if ex.has_text_layer else 0,
+             1 if ex.needs_ocr else 0, ex.title_guess, ex.doc_type, ex.doc_date,
+             ex.date_source, json.dumps(ex.privilege_flags),
+             json.dumps(ex.party_hits), ex.summary, ex.text_fingerprint,
+             db.utcnow(), row["id"]),
+        )
+        conn.commit()
+        extracted += 1
+
+        refreshed = conn.execute("SELECT * FROM documents WHERE id=?",
+                                 (row["id"],)).fetchone()
+        if refreshed:
+            rename_normalized(conn, cfg, refreshed)
+
+    ocr_stats = None
+    if ocr and cfg.ocr_enabled:
+        unread = conn.execute(
+            "SELECT COUNT(*) c FROM documents WHERE needs_ocr=1"
+        ).fetchone()["c"]
+        if unread:
+            ocr_stats = run_ocr_stage(conn, cfg, tools, force=False)
+
+    return {"converted": converted, "extracted": extracted, "ocr": ocr_stats}
 
 
 def run_ocr_stage(conn, cfg: Config, tools: dict, force: bool = False) -> dict:
@@ -348,11 +454,11 @@ def run_ocr_stage(conn, cfg: Config, tools: dict, force: bool = False) -> dict:
 
         conn.execute(
             """UPDATE documents SET ocr_status=?, ocr_path=?, ocr_chars=?,
-                   ocr_confidence=?, ocr_detail=?, ocr_at=?
+                   ocr_confidence=?, ocr_detail=?, ocr_at=?, profiled_at=?
                WHERE id=?""",
             (res.status, str(res.pdf_path) if res.pdf_path else None,
              res.text_chars, res.mean_confidence, res.detail[:400],
-             db.utcnow(), row["id"]),
+             db.utcnow(), db.utcnow(), row["id"]),
         )
         conn.commit()
 
@@ -379,11 +485,12 @@ def run_ocr_stage(conn, cfg: Config, tools: dict, force: bool = False) -> dict:
                      doc_type=COALESCE(NULLIF(?,''), doc_type),
                      doc_date=COALESCE(NULLIF(?,''), doc_date),
                      date_source=COALESCE(NULLIF(?,''), date_source),
-                     privilege_flags=?, summary=?, text_fingerprint=?
+                     privilege_flags=?, summary=?, text_fingerprint=?,
+                     profiled_at=?
                    WHERE id=?""",
                 (recovered, ex.title_guess, ex.doc_type, ex.doc_date,
                  ex.date_source, json.dumps(ex.privilege_flags), ex.summary,
-                 ex.text_fingerprint, row["id"]),
+                 ex.text_fingerprint, db.utcnow(), row["id"]),
             )
             conn.commit()
 

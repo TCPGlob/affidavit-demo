@@ -174,6 +174,115 @@ def share_addresses(port: int, host: str = "0.0.0.0") -> list[tuple[str, str]]:
     return out
 
 
+def start_watcher(conn, cfg) -> bool:
+    """Run the folder watcher in a background thread alongside the console.
+
+    Returns False if another watcher already owns the drop folder, which is a
+    normal situation (two consoles on one machine, or the watcher service
+    running separately) rather than an error.
+
+    The watcher gets its own connection: a sqlite3 connection may only be used
+    on the thread that created it, and the console's belongs to the main thread.
+    """
+    import sys
+    import threading
+    import time
+    import traceback
+
+    from affidavit import watcher as watcher_mod
+
+    watch_conn = db.connect_for_thread(cfg.db_path)
+    w = watcher_mod.Watcher(watch_conn, cfg)
+    if not w.acquire_lock():
+        watch_conn.close()
+        print("  A folder watcher is already running for this drop folder; "
+              "not starting a second one.")
+        return False
+
+    def loop():
+        try:
+            while True:
+                try:
+                    w.scan_once()
+                except Exception as exc:  # noqa: BLE001 - keep watching
+                    w.state.note = f"{type(exc).__name__}: {exc}"
+                    # Never silent: a watcher that fails quietly is worse than
+                    # one that stops loudly, because nobody knows to look.
+                    print(f"\n  [watcher] {type(exc).__name__}: {exc}")
+                    traceback.print_exc()
+                    sys.stdout.flush()
+                time.sleep(max(1.0, cfg.sync_poll_seconds))
+        finally:
+            try:
+                w.release_lock()
+            except Exception:  # noqa: BLE001
+                pass
+            watch_conn.close()
+
+    threading.Thread(target=loop, daemon=True, name="folder-watcher").start()
+    return True
+
+
+def cmd_watch(args) -> int:
+    """Run the folder watcher on its own, without the console."""
+    import signal
+
+    from affidavit import watcher as watcher_mod
+
+    root = Path(args.root).resolve()
+    cfg = load_config(root)
+    if args.watch_dir:
+        cfg.sync_watch_dir = args.watch_dir
+    if args.poll:
+        cfg.sync_poll_seconds = args.poll
+    conn = _open_db(cfg)
+    try:
+        w = watcher_mod.Watcher(conn, cfg)
+        print(BANNER)
+        print("  FOLDER WATCHER")
+        print(BANNER)
+        print(f"  watching : {cfg.watch_dir}")
+        print(f"  library  : {cfg.source_dir}")
+        print(f"  rejected : {cfg.reject_dir}")
+        print(f"  every    : {cfg.sync_poll_seconds:g}s")
+        warn = w.check_cloud()
+        if warn:
+            print()
+            for line in _wrap(warn, 64):
+                print(f"  {line}")
+        print()
+        print("  Drop files in the folder above; they appear in the console.")
+        print("  Press Ctrl+C to stop.\n")
+
+        if args.once:
+            result = w.scan_once()
+            print(f"  one pass: {result['taken']} file(s) taken, "
+                  f"{result['converted']} converted, {result['extracted']} read")
+            return 0
+
+        if not w.acquire_lock():
+            print("  Another watcher already owns this folder. Not starting.")
+            return 1
+
+        def on_scan(result):
+            print(f"  {watcher_mod.now_iso()}  took {result['taken']}, "
+                  f"converted {result['converted']}, read {result['extracted']}")
+
+        try:
+            w.run_forever(on_scan=on_scan)
+        except KeyboardInterrupt:
+            print("\n  Watcher stopped.")
+        return 0
+    finally:
+        conn.close()
+
+
+def _wrap(text: str, width: int) -> list[str]:
+    import textwrap
+
+    return textwrap.wrap(text, width)
+
+
 def cmd_review(args) -> int:
     root = Path(args.root).resolve()
     cfg = load_config(root)
@@ -213,6 +322,11 @@ def cmd_review(args) -> int:
                 print("  The console will still start; add documents and run:")
                 print("    python pipeline.py demo")
                 print("    python pipeline.py run\n")
+
+        if not getattr(args, "no_watch", False) and cfg.auto_sync_enabled:
+            if start_watcher(conn, cfg):
+                print(f"  Watching for dropped files: {cfg.watch_dir}")
+                print("  Anything copied in there appears here on its own.\n")
 
         review.serve(
             conn, cfg,
@@ -553,6 +667,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="create synthetic documents and skip sign-in, for showing the tool to a client. "
              "Never use this with real client material.",
     )
+    s.add_argument(
+        "--no-watch", action="store_true",
+        help="do not watch the drop folder; only files already in the library are used",
+    )
     s.set_defaults(func=cmd_review)
 
     s = sub.add_parser("create-user", help="add a reviewer account for shared use")
@@ -580,6 +698,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("collections", help="list bundles and their contents")
     s.set_defaults(func=cmd_collections)
+
+    s = sub.add_parser(
+        "watch",
+        help="run the folder watcher on its own, without the console",
+    )
+    s.add_argument("--once", action="store_true",
+                   help="a single pass, then exit (for testing)")
+    s.add_argument("--watch-dir", default="",
+                   help="override the folder to watch, e.g. a shared drive")
+    s.add_argument("--poll", type=float, default=0.0,
+                   help="seconds between checks (default 4)")
+    s.set_defaults(func=cmd_watch)
 
     s = sub.add_parser(
         "share",

@@ -310,8 +310,15 @@ def main() -> int:
                   any("collection_names" in d for d in body.get("documents", [])))
 
             status, body = call("/api/collections")
-            check("collections endpoint lists collections",
-                  status == 200 and len(body.get("collections", [])) >= 2)
+            check("collections endpoint responds", status == 200)
+            live = [c["name"] for c in body.get("collections", [])]
+            finished = [c["name"] for c in body.get("finished", [])]
+            check("an exported bundle leaves the live list",
+                  "Harbourview Exhibit Bundle" not in live, str(live))
+            check("but it is still listed as finished",
+                  "Harbourview Exhibit Bundle" in finished, str(finished))
+            check("the finished folder is reported",
+                  body.get("finished_dir", "").endswith("finished"), body.get("finished_dir", ""))
 
             status, body = call("/api/team")
             check("team endpoint responds without auth", status == 200)

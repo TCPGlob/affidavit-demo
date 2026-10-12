@@ -158,7 +158,13 @@ def export_collection(conn, cfg: Config, collection_id: int,
     entries = build_manifest(conn, cfg, collection, items)
 
     name = collection["name"]
-    bundle = cfg.collections_dir / name
+    # Drafts stay in collections/; exporting moves the bundle to collections/
+    # finished/ and takes it out of the console. If it was finalised before and
+    # is being re-exported, rebuild it in place there.
+    if collection.get("status") == "finalised" and collection.get("export_path"):
+        bundle = Path(collection["export_path"])
+    else:
+        bundle = cfg.finished_dir / name
     if bundle.exists():
         shutil.rmtree(bundle)
     pdf_dir = bundle / "PDFs"
@@ -192,11 +198,23 @@ def export_collection(conn, cfg: Config, collection_id: int,
     write_cover_docx(bundle / f"00 - {safe_component(name)} - Index.docx",
                      collection, exported, skipped)
 
-    conn.execute(
-        "UPDATE collections SET exported_at=?, export_path=? WHERE id=?",
-        (db.utcnow(), str(bundle), collection_id),
-    )
-    conn.commit()
+    # The COMPLETE marker is written LAST, and carries a hash of everything
+    # else. Any tool consuming a bundle (a Zibbit importer, a backup script)
+    # should wait for this file: its absence means the bundle is half-written.
+    digest, file_count = bundle_digest(bundle)
+    marker = {
+        "collection": name,
+        "exported_by": username,
+        "exported_at": db.utcnow(),
+        "documents": len(exported),
+        "pages": sum(int(e.get("pages") or 0) for e in exported),
+        "files_hashed": file_count,
+        "bundle_hash": digest,
+        "not_included": len(skipped),
+    }
+    (bundle / "COMPLETE").write_text(json.dumps(marker, indent=2), encoding="utf-8")
+
+    db.finalise_collection(conn, collection_id, str(bundle), digest, username)
 
     return {
         "collection": collection,
@@ -205,7 +223,30 @@ def export_collection(conn, cfg: Config, collection_id: int,
         "skipped": skipped,
         "pages": sum(int(e.get("pages") or 0) for e in exported),
         "ocr_flagged": [e for e in exported if "OCR" in (e.get("reason") or "")],
+        "bundle_hash": digest,
+        "finalised": True,
     }
+
+
+def bundle_digest(directory: Path) -> tuple[str, int]:
+    """A stable hash of a bundle's contents.
+
+    The COMPLETE marker is excluded, obviously, since it will contain this
+    value. Documents are hashed by content, so re-exporting an unchanged bundle
+    produces the same digest and a changed one does not.
+    """
+    import hashlib
+
+    entries: list[str] = []
+    for path in sorted(directory.rglob("*")):
+        if not path.is_file() or path.name == "COMPLETE":
+            continue
+        h = hashlib.sha256()
+        with path.open("rb") as fh:
+            while block := fh.read(1 << 20):
+                h.update(block)
+        entries.append(f"{path.relative_to(directory).as_posix()}:{h.hexdigest()}")
+    return hashlib.sha256("\n".join(entries).encode()).hexdigest(), len(entries)
 
 
 # ---------------------------------------------------------------- index files

@@ -366,7 +366,15 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
                         elif path == "/api/collections":
                             self._json({
                                 "collections": db.list_collections(c),
+                                "finished": db.list_collections(c, include_finished=True),
                                 "collections_dir": str(cfg.collections_dir),
+                                "finished_dir": str(cfg.finished_dir),
+                            })
+                        elif path == "/api/sync":
+                            from . import watcher as watcher_mod
+                            self._json({
+                                "status": watcher_mod.watcher_status(c, cfg),
+                                "events": watcher_mod.recent_events(c, limit=40),
                             })
                         elif path.startswith("/api/collections/"):
                             try:

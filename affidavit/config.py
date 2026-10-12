@@ -57,6 +57,21 @@ class Config:
     ocr_max_pages: int = 25
     ocr_enabled: bool = True
 
+    # --- Auto-sync: the folder a user drops files into ---
+    # Drop a file in the watch folder and it is picked up, copied into the
+    # library and appears in the console on its own. Polling is used rather
+    # than filesystem events: it works on locked-down machines and behaves
+    # predictably with cloud-synced folders that appear in bursts.
+    auto_sync_enabled: bool = True
+    sync_watch_dir: str = "intake/incoming"
+    sync_poll_seconds: float = 4.0
+    sync_settle_seconds: float = 3.0
+    sync_reject_dir: str = "intake/rejected"
+
+    # Warn if the drop folder sits inside a cloud-synced tree: client documents
+    # would then be copied to a third party without anyone deciding to.
+    sync_warn_cloud_paths: bool = True
+
     # Overridable so a test can work against a throwaway database.
     db_path: Path = Path("work/pipeline.sqlite3")
 
@@ -91,6 +106,21 @@ class Config:
     def collections_dir(self) -> Path:
         return self.output_dir / "collections"
 
+    @property
+    def finished_dir(self) -> Path:
+        """Where exported bundles land. They leave the console once here."""
+        return self.collections_dir / "finished"
+
+    @property
+    def watch_dir(self) -> Path:
+        p = Path(self.sync_watch_dir)
+        return p if p.is_absolute() else self.source_dir.parent.parent / p
+
+    @property
+    def reject_dir(self) -> Path:
+        p = Path(self.sync_reject_dir)
+        return p if p.is_absolute() else self.source_dir.parent.parent / p
+
     def ensure_dirs(self) -> None:
         for d in (
             self.source_dir,
@@ -103,6 +133,9 @@ class Config:
             self.schedules_dir,
             self.package_dir,
             self.collections_dir,
+            self.finished_dir,
+            self.watch_dir,
+            self.reject_dir,
         ):
             d.mkdir(parents=True, exist_ok=True)
 

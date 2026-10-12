@@ -50,6 +50,9 @@ jobs:
       - name: Run the pipeline
         run: python pipeline.py run --fresh
 
+      - name: Folder watcher tests
+        run: python watcher_test.py
+
       - name: Collection workflow tests
         run: python collections_test.py
 

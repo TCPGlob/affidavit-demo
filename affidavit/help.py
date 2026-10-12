@@ -14,31 +14,33 @@ from __future__ import annotations
 WORKFLOW = [
     {
         "n": 1,
-        "title": "Documents arrive in the intake folder",
+        "title": "Copy documents into the drop folder",
         "body": (
-            "Everything you want to work with goes into the intake folder, in "
-            "whatever folders you already keep. Sub-folders are kept as they are "
-            "and nothing is moved or renamed where you put it."
+            "There is a folder for new documents. Copy files into it - from your "
+            "desk, from email, from a shared drive - and they are picked up "
+            "automatically, usually within a few seconds. Nothing else to run. "
+            "The folder can itself be a shared or synced folder, so a colleague "
+            "can drop a file in from another computer."
         ),
     },
     {
         "n": 2,
         "title": "The pipeline reads and tags them",
         "body": (
-            "Each file is identified, duplicates are collapsed, and the computer "
-            "records what it can work out: the kind of document, its date, how "
-            "many pages, and whether it is a scan it cannot read. This happens "
-            "on its own -- you do not need to do anything."
+            "Each file is converted to PDF, duplicates are collapsed, and the "
+            "computer records what it can work out: the kind of document, its "
+            "date, how many pages, and whether it is a scan it cannot read. This "
+            "happens on its own."
         ),
     },
     {
         "n": 3,
         "title": "Scans are read automatically",
         "body": (
-            "If any document is a scan or a photo, the pipeline reads the text "
-            "out of it so it can be searched and titled. This happens on this "
-            "machine only. Anything it cannot read is flagged for you to check "
-            "by eye; the original scan is never altered."
+            "If a document is a scan or a photo, the text is read out of it so it "
+            "can be searched and titled. This happens on this machine only. Each "
+            "scan gets a quality rating so you know which ones to check by eye. "
+            "The original scan is never altered."
         ),
     },
     {
@@ -56,24 +58,25 @@ WORKFLOW = [
         "body": (
             "Choose '+ New collection' and give it the name you want the folder "
             "to have. That name becomes the folder, the cover document, and what "
-            "your colleagues see."
+            "your colleagues see. It waits here until you export it."
         ),
     },
     {
         "n": 6,
         "title": "Convert and export",
         "body": (
-            "Only the documents you ticked are converted. You get a folder "
-            "containing a PDFs sub-folder of numbered PDFs, a Word index sheet, "
-            "and a contents list. Anything that could not be converted is listed "
-            "under 'Not included' rather than silently dropped."
+            "Only the documents you ticked are converted. The bundle is written "
+            "to the finished folder with a COMPLETE marker, and it leaves your "
+            "Collections list - what remains there is live work only. Anything "
+            "that could not be converted is listed under 'Not included' rather "
+            "than silently dropped."
         ),
     },
     {
         "n": 7,
         "title": "Import the PDFs into Zibbit",
         "body": (
-            "Zibbit is fed PDFs, so the PDFs folder is the finished product -- the "
+            "Zibbit is fed PDFs, so the PDFs folder is the finished product - the "
             "files are already numbered in the order you set. The Word sheet is "
             "just a readable index for your own reference."
         ),

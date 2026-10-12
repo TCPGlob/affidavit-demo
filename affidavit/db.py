@@ -117,6 +117,22 @@ CREATE TABLE IF NOT EXISTS doc_tags (
 CREATE INDEX IF NOT EXISTS idx_items_collection ON collection_items(collection_id);
 CREATE INDEX IF NOT EXISTS idx_items_doc        ON collection_items(doc_id);
 CREATE INDEX IF NOT EXISTS idx_tags_doc         ON doc_tags(doc_id);
+
+-- What the folder watcher has done, and its state (heartbeat, lock).
+CREATE TABLE IF NOT EXISTS sync_events (
+    id     INTEGER PRIMARY KEY,
+    ts     TEXT NOT NULL,
+    kind   TEXT NOT NULL,
+    detail TEXT,
+    path   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS sync_state (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_events_ts ON sync_events(ts DESC);
 """
 
 # Columns added after the first release. Applied on open so an existing
@@ -126,6 +142,12 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     ("decisions", "editing_since", "TEXT"),
     ("collections", "version", "INTEGER NOT NULL DEFAULT 1"),
     ("collection_items", "version", "INTEGER NOT NULL DEFAULT 1"),
+    # Finalised bundles move to output/collections/finished/ and drop out of
+    # the console, so the collections list only shows live work.
+    ("collections", "status", "TEXT NOT NULL DEFAULT 'draft'"),
+    ("collections", "finalised_at", "TEXT"),
+    ("collections", "finalised_by", "TEXT"),
+    ("collections", "bundle_hash", "TEXT"),
     # OCR produces a separate searchable copy; the exported scan is untouched.
     ("documents", "ocr_path", "TEXT"),
     ("documents", "ocr_status", "TEXT"),
@@ -133,6 +155,10 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     ("documents", "ocr_confidence", "REAL"),
     ("documents", "ocr_detail", "TEXT"),
     ("documents", "ocr_at", "TEXT"),
+    # Marks that conversion and metadata extraction have been done. Needed
+    # because ingest() already sets text_fingerprint, so that column cannot be
+    # used to tell "not yet read" from "read".
+    ("documents", "profiled_at", "TEXT"),
 ]
 
 SCHEDULES = ("A", "B", "C")
@@ -274,10 +300,17 @@ def touch_collection(conn: sqlite3.Connection, collection_id: int) -> None:
     conn.commit()
 
 
-def list_collections(conn: sqlite3.Connection) -> list[dict]:
+def list_collections(conn: sqlite3.Connection, include_finished: bool = False) -> list[dict]:
+    """Live collections. Finalised ones are hidden unless asked for.
+
+    A finalised bundle has been handed over to Zibbit; keeping it in the working
+    list would clutter the console and invite edits to something already
+    delivered.
+    """
+    where = "" if include_finished else "WHERE COALESCE(c.status,'draft') <> 'finalised'"
     try:
         rows = conn.execute(
-            """SELECT c.*,
+            f"""SELECT c.*,
                       (SELECT COUNT(*) FROM collection_items i
                         WHERE i.collection_id = c.id) AS item_count,
                       (SELECT COALESCE(SUM(d.page_count), 0)
@@ -292,11 +325,25 @@ def list_collections(conn: sqlite3.Connection) -> list[dict]:
                         WHERE i.collection_id = c.id
                           AND d.pdf_status NOT IN ('ok', 'passthrough')) AS not_converted
                FROM collections c
+               {where}
                ORDER BY c.updated_at DESC, c.id DESC"""
         ).fetchall()
         return [dict(r) for r in rows]
     except sqlite3.OperationalError:
         return []
+
+
+def finalise_collection(conn: sqlite3.Connection, collection_id: int,
+                        bundle_path: str, bundle_hash: str, username: str) -> None:
+    now = utcnow()
+    conn.execute(
+        """UPDATE collections
+           SET status='finalised', finalised_at=?, finalised_by=?,
+               bundle_hash=?, export_path=?, exported_at=?, updated_at=?
+           WHERE id=?""",
+        (now, username, bundle_hash, bundle_path, now, now, collection_id),
+    )
+    conn.commit()
 
 
 def get_collection(conn: sqlite3.Connection, collection_id: int) -> dict | None:
