@@ -141,7 +141,7 @@ _MONTH_ALT = (
 # reliable signal, so it is tried first.
 DATE_LABEL_RE = re.compile(
     rf"(?:^|\n)[ \t]*(?:dated?|date\s+of|sent|received|issued|signed|executed)"
-    rf"\s*[:\-–]?\s*([^\n]{{4,60}})",
+    rf"\s*[:\--]?\s*([^\n]{{4,60}})",
     re.I,
 )
 
