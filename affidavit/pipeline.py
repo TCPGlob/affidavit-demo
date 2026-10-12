@@ -113,6 +113,28 @@ def run(conn, cfg: Config, fresh: bool = False, skip_ingest: bool = False,
             print(f"          {pruned['documents_removed']} document(s) removed from state "
                   "(source file no longer in intake)")
         result = ingest(conn, cfg)
+        if result.files_seen == 0:
+            # Nothing to do, and the reason is almost always that the folder is
+            # empty. Say so plainly and say what to do, rather than printing a
+            # page of zeroes.
+            print()
+            print("=" * 66)
+            print("  NO DOCUMENTS FOUND")
+            print("=" * 66)
+            print("  These folders are empty:")
+            print(f"    {cfg.source_dir}")
+            print(f"    {cfg.watch_dir}")
+            print()
+            print("  Either copy your documents into the folder above, or start")
+            print("  the console, which prepares sample documents on its first run:")
+            print()
+            print("    python pipeline.py review")
+            print()
+            print("  The console watches the folder, so anything you copy in")
+            print("  appears on its own without running this command again.")
+            print()
+            return {"tools": {k: v.available for k, v in tools.items()},
+                    "ocr": None, "empty": True}
         print(f"          {result.files_seen} files seen")
         print(f"          {result.unique_documents} unique documents")
         print(f"          {result.exact_duplicates} exact duplicates collapsed")

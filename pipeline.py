@@ -116,6 +116,10 @@ def cmd_run(args) -> int:
             conn, cfg, fresh=args.fresh, skip_ingest=args.skip_ingest,
             ocr=not args.no_ocr, ocr_force=args.ocr_force,
         )
+        if result.get("empty"):
+            # The run already explained that there is nothing to do. A report
+            # of zeroes adds nothing but noise.
+            return 0
         reconcile.reconcile(conn, cfg)
     finally:
         conn.close()

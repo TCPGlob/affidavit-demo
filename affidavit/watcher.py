@@ -48,6 +48,17 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
+def _sha256(path: Path, chunk: int = 1 << 20) -> str:
+    """Content hash, so a file is recognised however it was named."""
+    import hashlib
+
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        while block := fh.read(chunk):
+            h.update(block)
+    return h.hexdigest()
+
+
 def looks_like_cloud_folder(path: Path) -> str | None:
     """Return the cloud service name if the path sits inside a synced folder."""
     try:
@@ -208,8 +219,41 @@ class Watcher:
             n += 1
         return candidate
 
+    def _already_taken(self, path: Path) -> bool:
+        """Has this exact file already been copied in?
+
+        Needed because a file the pipeline cannot use stays where the user put
+        it. Without this it would be copied into the library again on every
+        scan, filling the library with the same unusable file.
+        """
+        try:
+            digest = _sha256(path)
+        except OSError:
+            return False
+        row = self.conn.execute(
+            "SELECT sha256 FROM sync_files WHERE sha256=?", (digest,)
+        ).fetchone()
+        if row:
+            return True
+        try:
+            self.conn.execute(
+                "INSERT INTO sync_files (sha256, name, first_seen) VALUES (?,?,?)",
+                (digest, path.name[:200], now_iso()),
+            )
+            self.conn.commit()
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
     def take(self, path: Path) -> Path | None:
-        """Copy a dropped file into the library. Returns the new path."""
+        """Copy a dropped file into the library. Returns the new path.
+
+        Returns None when the file has been taken before, so the caller knows
+        nothing was copied.
+        """
+        if self._already_taken(path):
+            return None
+
         try:
             relative_parent = path.parent.relative_to(self.watch_dir)
         except ValueError:
@@ -258,17 +302,22 @@ class Watcher:
         self.cfg.ensure_dirs()
         ready = self.settled()
         taken: list[Path] = []
+        already = 0
 
         for path in ready:
             dest = self.take(path)
+            # Drop it from the pending set either way, so a file already taken
+            # is not reconsidered on every pass.
             self._seen.pop(path, None)
             if dest is not None:
                 taken.append(dest)
                 self.state.ingested += 1
                 self._event("received", f"{path.name} -> {dest.name}", str(path))
+            else:
+                already += 1
 
         result = {"taken": len(taken), "documents": 0, "converted": 0,
-                  "extracted": 0}
+                  "extracted": 0, "already_taken": already}
 
         if taken:
             # Register the new files, then process only what is new. Re-running

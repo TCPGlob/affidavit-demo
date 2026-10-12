@@ -132,6 +132,18 @@ CREATE TABLE IF NOT EXISTS sync_state (
     value TEXT
 );
 
+-- Every file the folder watcher has taken, by content hash.
+--
+-- Without this, a file the pipeline cannot use (a .zip, say) stays in the drop
+-- folder and is copied in again on every scan, producing endless copies. The
+-- drop folder is the user's, so the file cannot simply be moved away.
+CREATE TABLE IF NOT EXISTS sync_files (
+    sha256    TEXT NOT NULL,
+    name      TEXT,
+    first_seen TEXT,
+    PRIMARY KEY (sha256)
+);
+
 CREATE INDEX IF NOT EXISTS idx_sync_events_ts ON sync_events(ts DESC);
 """
 

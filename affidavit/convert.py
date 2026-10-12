@@ -49,6 +49,19 @@ def _which(*candidates: str) -> str | None:
     return None
 
 
+def _tesseract_path() -> str | None:
+    """Tesseract's location, using the OCR module's own lookup.
+
+    Imported lazily to avoid a circular import at module load.
+    """
+    try:
+        from .ocr import find_tesseract
+
+        return find_tesseract().path
+    except Exception:  # noqa: BLE001 - detection must never fail the pipeline
+        return _which("tesseract")
+
+
 def _first_existing(paths: list[str]) -> str | None:
     for p in paths:
         if Path(p).exists():
@@ -75,7 +88,10 @@ def detect_toolchain() -> list[Tool]:
         ),
         Tool(
             "tesseract",
-            _which("tesseract"),
+            # Use the same lookup as the OCR stage. Tesseract's installer does
+            # not put it on PATH, so checking PATH alone reported it missing on
+            # machines where it works, which contradicted the OCR panel.
+            _tesseract_path(),
             "OCR image-only scans into a searchable text layer",
             "https://github.com/UB-Mannheim/tesseract/wiki  (or: winget install UB-Mannheim.TesseractOCR)",
         ),

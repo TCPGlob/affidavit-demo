@@ -968,10 +968,15 @@ function renderLibrary() {
       Nothing matches. ${f !== 'all' ? 'Try &ldquo;All documents&rdquo;.' : 'Copy files into the drop folder and they will appear here.'}
     </td></tr>`;
 
-  const total = DOCS.length, ready = DOCS.filter(d => !d.needs_ocr && d.pdf_status === 'ok' || d.pdf_status === 'passthrough').length;
-  const ocr = DOCS.filter(d => d.needs_ocr).length;
+  // Header summary. Named differently from `total` above, which is the filtered
+  // count. The parentheses matter: && binds tighter than ||, so without them a
+  // document needing OCR would still be counted as PDF-ready.
+  const allDocs = DOCS.length;
+  const readyCount = DOCS.filter(d =>
+    !d.needs_ocr && (d.pdf_status === 'ok' || d.pdf_status === 'passthrough')).length;
+  const ocrCount = DOCS.filter(d => d.needs_ocr).length;
   document.getElementById('stat').textContent =
-    `${total} documents \u00b7 ${ready} PDF-ready \u00b7 ${ocr} need OCR \u00b7 ${COLLECTIONS.length} collections`;
+    `${allDocs} documents \u00b7 ${readyCount} PDF-ready \u00b7 ${ocrCount} need OCR \u00b7 ${COLLECTIONS.length} collections`;
   selCount();
 }
 
