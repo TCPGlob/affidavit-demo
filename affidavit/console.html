@@ -588,6 +588,8 @@ function renderTeamManage(t) {
       <td style="white-space:nowrap">
         ${isAdmin ? `
           <button class="btn sec sm" onclick="resetPassword('${esc(u.username)}')">Reset password</button>
+          <button class="btn sec sm" onclick="issueRecoveryCode('${esc(u.username)}')"
+            title="A one-time code for getting back in when the password is forgotten.">Recovery code</button>
           ${isMe ? '' : (u.disabled
             ? `<button class="btn sec sm" onclick="userAction('enable','${esc(u.username)}')">Re-enable</button>`
             : `<button class="btn danger sm" onclick="userAction('disable','${esc(u.username)}')">Disable</button>`)}
@@ -675,6 +677,36 @@ async function createUser() {
   closeModal();
   await renderTeam();
   toast(`${name} can now sign in as ${username}`);
+}
+
+/* A one-time code for getting back into an account. Shown once, so the dialog
+   says so plainly and offers to copy it. */
+async function issueRecoveryCode(username) {
+  const out = await post('api/recovery-code', {username});
+  if (!out || !out.ok) {
+    toast((out && out.error) || 'Could not issue a recovery code');
+    return;
+  }
+  const isMe = ME && ME.username === out.username;
+  document.getElementById('sheet').innerHTML = `
+    <h2>Recovery code for ${esc(out.username)}</h2>
+    <div class="sub">This is the way back in if the password is forgotten. There is
+      no email on this system, so it is the only self-service route.</div>
+    <div style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:22px;
+        font-weight:600;letter-spacing:2px;text-align:center;background:#f8f9fb;
+        border:2px dashed #d0d5dd;border-radius:9px;padding:18px 10px;margin:16px 0;
+        user-select:all;word-break:break-all">${esc(out.code)}</div>
+    <div class="sub" style="background:#fffaeb;border:1px solid #fedf89;color:#b54708;
+        border-radius:8px;padding:11px 13px">
+      <b>This is shown once and cannot be looked up later.</b> It is stored hashed,
+      like a password. Copy it now and keep it somewhere safe. It works once, then
+      it is used up.
+    </div>
+    <div class="actions">
+      <button class="btn primary" onclick="copyText('${esc(out.code)}', this)">Copy the code</button>
+      <button class="btn sec" onclick="closeModal()">Done</button>
+    </div>`;
+  document.getElementById('modal').classList.add('on');
 }
 
 function resetPassword(username) {

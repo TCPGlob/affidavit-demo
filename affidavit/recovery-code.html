@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Save your recovery code &mdash; Affidavit Review Console</title>
+<style>
+  :root{--ink:#101828;--mut:#667085;--line:#e4e7eb;--warn:#b54708;--amber:#fffaeb}
+  *{box-sizing:border-box}
+  body{font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       margin:0;color:var(--ink);background:#f8f9fb;display:flex;align-items:center;
+       justify-content:center;min-height:100vh;padding:20px}
+  .box{background:#fff;border:1px solid var(--line);border-radius:12px;padding:30px 32px;
+       width:100%;max-width:520px;box-shadow:0 6px 24px rgba(16,24,40,.07)}
+  h1{font-size:17px;margin:0 0 6px}
+  .sub{color:var(--mut);font-size:12.5px;margin-bottom:20px}
+  .code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:25px;font-weight:600;
+        letter-spacing:3px;text-align:center;background:#f8f9fb;border:2px dashed #d0d5dd;
+        border-radius:9px;padding:20px 12px;margin:6px 0 18px;user-select:all;
+        word-break:break-all}
+  .warn{background:var(--amber);border:1px solid #fedf89;color:var(--warn);
+        border-radius:8px;padding:12px 14px;font-size:12.5px}
+  ul{margin:10px 0 0;padding-left:20px;font-size:12.5px;color:#344054}
+  li{margin:5px 0}
+  .actions{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap}
+  button{background:var(--ink);color:#fff;border:0;border-radius:7px;padding:11px 18px;
+         font:inherit;font-weight:600;cursor:pointer}
+  button.sec{background:#fff;color:var(--ink);border:1px solid #d0d5dd}
+  button:hover{opacity:.92}
+  .copied{color:#05603a;font-size:12.5px;align-self:center}
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>Save your recovery code</h1>
+  <div class="sub">This is the way back into your account if you forget your password.
+    There is no email address on this system, so this code is the only self-service
+    route.</div>
+
+  <div class="code" id="code">__CODE__</div>
+
+  <div class="warn">
+    <b>This is shown once and cannot be looked up later.</b> It is stored hashed,
+    like a password, so nobody, including an administrator who looks in the
+    database, can read it back.
+  </div>
+
+  <ul>
+    <li>Write it down, or put it in your password manager now.</li>
+    <li>Keep it somewhere different from the machine running this app.</li>
+    <li>It works once, then it is used up and worthless to anyone who finds it.</li>
+    <li>You can print a fresh one any time from the Team tab, which replaces this one.</li>
+  </ul>
+
+  <div class="actions">
+    <button type="button" id="copy">Copy the code</button>
+    <button type="button" class="sec" onclick="window.print()">Print this page</button>
+    <span class="copied" id="done"></span>
+  </div>
+  <div class="actions">
+    <button type="button" class="sec" onclick="location.href='/'">I have saved it, continue</button>
+  </div>
+</div>
+<script>
+document.getElementById('copy').addEventListener('click', function () {
+  var text = document.getElementById('code').textContent.trim();
+  var done = document.getElementById('done');
+  function ok() { done.textContent = 'Copied.'; }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(ok, fallback);
+  } else { fallback(); }
+  function fallback() {
+    var ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); ok(); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+});
+</script>
+</body>
+</html>

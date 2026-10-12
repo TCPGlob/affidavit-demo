@@ -494,6 +494,32 @@ A **Reviewer** can work on documents but cannot manage accounts.
 
 Every one of these is written to the activity record.
 
+## Forgotten passwords
+
+Three ways back in, and which one applies depends on who you are.
+
+- **You can still sign in**: use **Change my password** on the Team tab.
+- **Somebody else can help**: an administrator uses **Reset password** on the
+  Team tab.
+- **You are the only administrator and you are locked out**: use your
+  **recovery code**.
+
+The recovery code is issued when the account is created and shown **once**, on a
+page that asks you to write it down. It is stored hashed, like a password, so
+nobody can look it up later.
+
+If you forget your password, use **Forgotten your password?** on the sign-in page.
+It asks for your username, the code and a new password. Dashes and spaces in the
+code do not matter.
+
+- A code **works once**, then it is cleared. A piece of paper that turns up later
+  is worthless.
+- To replace one, use **Recovery code** on the Team tab. An administrator can
+  issue one for anybody; anyone can issue one for themselves. A new code replaces
+  the old one.
+- **Keep it somewhere other than this machine.** A code in a file on the same
+  computer is no help if that computer is what you cannot reach.
+
 ## Sharing with colleagues
 
 **Same office**: use the `share-windows.bat` launcher. It prints an address such

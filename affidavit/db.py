@@ -180,6 +180,12 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     # record is only meaningful while this exists, so clearing the library lets
     # the same file be taken again instead of being refused forever.
     ("sync_files", "dest", "TEXT"),
+    # Recovery codes, for getting back in without an administrator. Stored
+    # hashed and cleared once used.
+    ("users", "recovery_salt", "TEXT"),
+    ("users", "recovery_hash", "TEXT"),
+    ("users", "recovery_iterations", "INTEGER"),
+    ("users", "recovery_used_at", "TEXT"),
 ]
 
 SCHEDULES = ("A", "B", "C")
@@ -215,14 +221,31 @@ def init(conn: sqlite3.Connection) -> None:
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """Add columns introduced after the first release, if missing."""
+    """Add columns introduced after the first release, if missing.
+
+    A table in MIGRATIONS may not exist yet: the auth tables are created by
+    auth.init_auth, which runs separately. Asking for the columns of a table that
+    is not there is a normal outcome, not a fault, so it is left alone.
+
+    The ALTER is also guarded on the column list rather than only on the pragma,
+    because the earlier version caught the wrong exception type and took down
+    every fresh install with "no such table: users".
+    """
     for table, column, decl in MIGRATIONS:
         try:
             existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, sqlite3.DatabaseError):
             continue
-        if column not in existing:
+        if not existing:
+            # No such table, or one with no columns. Either way, nothing to alter.
+            continue
+        if column in existing:
+            continue
+        try:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        except (sqlite3.OperationalError, sqlite3.DatabaseError):
+            # Already added by a concurrent start, or otherwise not needed.
+            continue
     conn.commit()
 
 

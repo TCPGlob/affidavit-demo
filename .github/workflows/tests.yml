@@ -75,6 +75,9 @@ jobs:
       - name: Authentication and multi-user tests
         run: python auth_test.py
 
+      - name: Password recovery tests
+        run: python recovery_test.py
+
       - name: Legacy affidavit export tests
         run: python e2e_test.py
 

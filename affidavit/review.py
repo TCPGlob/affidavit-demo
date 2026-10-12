@@ -27,6 +27,8 @@ from .config import Config
 CONSOLE_HTML = Path(__file__).resolve().parent / "console.html"
 LOGIN_HTML = Path(__file__).resolve().parent / "login.html"
 SETUP_HTML = Path(__file__).resolve().parent / "setup.html"
+RECOVER_HTML = Path(__file__).resolve().parent / "recover.html"
+RECOVERY_CODE_HTML = Path(__file__).resolve().parent / "recovery-code.html"
 
 
 def _template(path: Path, fallback: bytes, error: str = "",
@@ -179,6 +181,41 @@ def _login_page(error: str = "") -> bytes:
                 "<p><input name='password' type='password' placeholder='password'></p>"
                 "<button>Sign in</button></form>__ERROR__</body></html>").encode()
     return _template(LOGIN_HTML, fallback, error)
+
+
+def _recover_page(error: str = "", username: str = "") -> bytes:
+    """The way back in when a password has been forgotten.
+
+    Reached without signing in, because the person who needs it cannot sign in.
+    """
+    fallback = ("<!DOCTYPE html><html><body style='font-family:sans-serif;padding:40px'>"
+                "<h2>Forgotten password</h2>"
+                "<form method='POST' action='/recover'>"
+                "<p><input name='username' placeholder='username' value='__USER__'></p>"
+                "<p><input name='code' placeholder='recovery code'></p>"
+                "<p><input name='password' type='password' placeholder='new password'></p>"
+                "<p><input name='confirm' type='password' placeholder='repeat it'></p>"
+                "<button>Set a new password</button></form>"
+                "<p><a href='/login'>Back to sign in</a></p>"
+                "__ERROR__</body></html>").encode()
+    page = _template(RECOVER_HTML, fallback, error)
+    return page.replace(b"__USER__", username.encode("utf-8"))
+
+
+def _recovery_code_page(code: str) -> bytes:
+    """Shown once, right after setup. The only time the code is readable."""
+    fallback = ("<!DOCTYPE html><html><body style='font-family:sans-serif;padding:40px'>"
+                "<h2>Save your recovery code</h2>"
+                "<p style='font-size:24px;font-family:monospace;letter-spacing:2px'>"
+                + code +
+                "</p><p>Write this down and keep it somewhere safe. It is shown "
+                "once and cannot be looked up afterwards.</p>"
+                "<p><a href='/'>Continue to the console</a></p></body></html>").encode()
+    # _template replaces the marker with the error box, so it must be left doing
+    # its own job and the code substituted afterwards. Passing "__CODE__" as the
+    # marker made _template swap the code for an empty error box instead.
+    page = _template(RECOVERY_CODE_HTML, fallback, "")
+    return page.replace(b"__CODE__", code.encode("utf-8"))
 
 
 def _setup_page(error: str = "") -> bytes:
@@ -334,6 +371,34 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
                                 return
                             self._send(200, _setup_page(), "text/html; charset=utf-8")
                             return
+                        if path == "/your-recovery-code":
+                            # Shown once. Read and deleted in the same breath, so
+                            # a refresh does not bring it back and it cannot be
+                            # looked up later.
+                            row = c.execute(
+                                "SELECT value FROM sync_state "
+                                "WHERE key='pending_recovery_code'"
+                            ).fetchone()
+                            if not row or not row["value"]:
+                                self._redirect("/")
+                                return
+                            c.execute("DELETE FROM sync_state "
+                                      "WHERE key='pending_recovery_code'")
+                            c.commit()
+                            try:
+                                pending = json.loads(row["value"])
+                            except (json.JSONDecodeError, TypeError):
+                                self._redirect("/")
+                                return
+                            self._send(200, _recovery_code_page(pending.get("code", "")),
+                                       "text/html; charset=utf-8")
+                            return
+                        if path == "/recover":
+                            if not ctx.require_auth:
+                                self._redirect("/")
+                                return
+                            self._send(200, _recover_page(), "text/html; charset=utf-8")
+                            return
                         if path == "/logout":
                             auth.logout(c, _cookie_token(self.headers.get("Cookie")))
                             self._redirect("/login", self._clear_cookie_header())
@@ -413,6 +478,9 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
                         if path == "/setup":
                             self._handle_setup(c, raw)
                             return
+                        if path == "/recover":
+                            self._handle_recover(c, raw)
+                            return
 
                         user = self._require_user(c)
                         if self._blocked(user):
@@ -436,6 +504,8 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
                             self._handle_set_watch_dir(c, actor, raw)
                         elif path == "/api/pickfolder":
                             self._handle_pick_folder(c, actor)
+                        elif path == "/api/recovery-code":
+                            self._handle_new_recovery_code(c, actor, raw)
                         elif path == "/api/users/create":
                             self._handle_user_create(c, actor, raw)
                         elif path == "/api/users/update":
@@ -728,12 +798,114 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
             except ValueError as exc:
                 return fail(str(exc))
 
+            # Issue a recovery code now, while there is somebody to write it
+            # down. It is the only way back in if this administrator forgets
+            # their password, since there is nobody above them.
+            code = auth.set_recovery_code(c, username)
+
             auth.audit(c, username, None, "account_created", "first account (administrator)")
+            auth.audit(c, username, None, "recovery_code_issued", "shown once at setup")
+
+            # Held just long enough to show it once. Handlers are per-request, so
+            # this goes in the database rather than on the instance. It is deleted
+            # the moment the page is served, which is what makes it "shown once".
+            c.execute(
+                "INSERT INTO sync_state (key, value) VALUES ('pending_recovery_code', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (json.dumps({"username": username, "code": code}),),
+            )
+            c.commit()
+
             token, user = auth.login(c, username, password,
                                      self.headers.get("User-Agent", ""))
             if user is None:
                 return fail("Account created, but sign-in failed. Try signing in.")
-            self._redirect("/", self._cookie_header(token, auth.SESSION_HOURS * 3600))
+            self._redirect("/your-recovery-code",
+                           self._cookie_header(token, auth.SESSION_HOURS * 3600))
+
+        def _handle_recover(self, c, raw: bytes) -> None:
+            """Set a new password using a recovery code, without signing in.
+
+            This is the route back in for the one case nothing else covers: the
+            only administrator has forgotten their own password, so there is
+            nobody above them to reset it.
+            """
+            from urllib.parse import parse_qs
+
+            form = parse_qs(raw.decode("utf-8", "replace"))
+            username = (form.get("username") or [""])[0].strip().lower()
+            code = (form.get("code") or [""])[0]
+            password = (form.get("password") or [""])[0]
+            confirm = (form.get("confirm") or [""])[0]
+
+            def fail(message: str) -> None:
+                self._send(400, _recover_page(message, username),
+                           "text/html; charset=utf-8")
+
+            if not username or not code:
+                return fail("Please fill in your username and the recovery code.")
+            if password != confirm:
+                return fail("The two new passwords do not match.")
+
+            ok, message = auth.reset_with_recovery_code(c, username, code, password)
+            if not ok:
+                auth.audit(c, username, None, "recovery_failed", "")
+                return fail(message)
+
+            # Deliberately not signed in automatically: they have just proved
+            # they hold the code, not that they know the new password.
+            self._send(200, _login_page(
+                "Password changed. Sign in with your new password. "
+                "Your recovery code has been used up."),
+                "text/html; charset=utf-8")
+
+        def _handle_new_recovery_code(self, c, actor, raw: bytes) -> None:
+            """Issue a fresh recovery code for an account.
+
+            An administrator can issue one for a colleague. A colleague can
+            issue one for themselves, which is the ordinary way to replace a code
+            that has been used or lost.
+            """
+            try:
+                body = json.loads(raw or b"{}")
+            except (json.JSONDecodeError, TypeError):
+                body = {}
+            target = (body.get("username") or "").strip().lower()
+
+            if not ctx.require_auth:
+                self._json({"error": "Sign-in is switched off, so recovery codes "
+                                     "are unavailable."}, 400)
+                return
+            if actor is None:
+                self._json({"error": "Not signed in."}, 401)
+                return
+
+            me = self._effective_user(c)
+            # `actor` is a SessionUser, not a name. Passing it straight to the
+            # database fails with "type 'SessionUser' is not supported".
+            me_name = me.username if me else None
+            if target and me_name and target != me_name:
+                # Somebody else's account, so this needs administrator rights.
+                row = c.execute("SELECT role FROM users WHERE username=?",
+                                (me_name,)).fetchone()
+                if not row or row["role"] != "admin":
+                    self._json({"error": "Only an administrator can issue a "
+                                         "recovery code for somebody else."}, 403)
+                    return
+            target = target or me_name or ""
+            if not target:
+                self._json({"error": "Not signed in."}, 401)
+                return
+
+            row = c.execute("SELECT username FROM users WHERE username=?",
+                            (target,)).fetchone()
+            if row is None:
+                self._json({"error": f"There is no account called '{target}'."}, 404)
+                return
+
+            code = auth.set_recovery_code(c, target)
+            auth.audit(c, me_name, None, "recovery_code_issued", f"for {target}")
+            self._json({"ok": True, "username": target, "code": code})
 
         def _require_admin(self, c, user) -> bool:
             """Guard for account management. Sends its own error response."""

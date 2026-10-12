@@ -305,6 +305,39 @@ bundle. Its absence means the bundle was still being written.
 
 ## Accounts and sign-in
 
+### I forgot my password
+
+Three ways back in, depending on who you are.
+
+**If somebody else can help:** ask an administrator to use **Reset password** on
+the Team tab. Done in a few seconds.
+
+**If you are the only administrator and are locked out:** use your **recovery
+code**. On the sign-in page, click **Forgotten your password?**. It asks for your
+username, the recovery code you were given when the account was created, and a
+new password. Dashes and spaces in the code do not matter.
+
+**If you have lost the recovery code as well:**
+```
+python pipeline.py users --reset-password your-username
+```
+It will ask you for a new password.
+
+Once you are back in, print a fresh code with **Recovery code** on the Team tab,
+and keep it somewhere other than this computer.
+
+> **A recovery code works once.** When it has been used it is cleared, so an old
+> note of it is worthless to anybody who finds it.
+
+### "That username and recovery code do not match"
+
+Check the username is exactly right (they are saved in lowercase), and that you
+are using the **current** code. Issuing a new code on the Team tab replaces the
+old one, so an older note of it will stop working.
+
+If it still will not work, reset the password from the command line as above, then
+print a new code.
+
 ### I want to add a colleague
 
 Sign in as an administrator, open the **Team** tab, and use **+ Add a colleague**.

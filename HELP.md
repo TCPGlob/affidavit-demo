@@ -601,6 +601,37 @@ python pipeline.py audit
 python pipeline.py users
 ```
 
+### Forgotten passwords
+
+There are three ways back in, and it is worth knowing which applies.
+
+| Situation | What to do |
+|---|---|
+| You can still sign in | **Change my password** on the Team tab |
+| Somebody else can help | An administrator uses **Reset password** on the Team tab |
+| You are the only administrator and you are locked out | Use your **recovery code** |
+
+**The recovery code** is issued when the account is created and shown **once**,
+on a page that asks you to write it down. It is stored hashed, exactly like a
+password, so nobody can look it up later, including an administrator reading the
+database.
+
+If you forget your password, use **Forgotten your password?** on the sign-in
+page. It asks for your username, the code, and a new password. Dashes and spaces
+in the code do not matter.
+
+**A code works once.** As soon as it is used it is cleared, so a piece of paper
+that turns up later is worthless.
+
+**To replace a code**, use **Recovery code** on the Team tab. An administrator can
+issue one for anybody; anyone can issue one for themselves. Issuing a new code
+replaces the old one, which is how you deal with a code that has been lost or
+seen by the wrong person.
+
+> **Write it down somewhere other than this machine.** A recovery code kept in a
+> file on the same computer is no use if that computer is the thing you cannot
+> reach.
+
 ---
 
 ## Working with other people

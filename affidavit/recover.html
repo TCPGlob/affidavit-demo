@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forgotten password &mdash; Affidavit Review Console</title>
+<style>
+  :root{--ink:#101828;--mut:#667085;--line:#e4e7eb;--danger:#b42318}
+  *{box-sizing:border-box}
+  body{font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       margin:0;color:var(--ink);background:#f8f9fb;display:flex;align-items:center;
+       justify-content:center;min-height:100vh;padding:20px}
+  .box{background:#fff;border:1px solid var(--line);border-radius:12px;padding:30px 32px;
+       width:100%;max-width:440px;box-shadow:0 6px 24px rgba(16,24,40,.07)}
+  h1{font-size:17px;margin:0 0 4px}
+  .sub{color:var(--mut);font-size:12.5px;margin-bottom:18px}
+  label{display:block;font-size:12.5px;font-weight:600;margin:14px 0 5px}
+  input{width:100%;padding:10px 11px;border:1px solid #d0d5dd;border-radius:7px;font:inherit}
+  input.code{font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:1.5px;
+       text-transform:uppercase}
+  input:focus{outline:2px solid #84caff;outline-offset:-1px}
+  button{width:100%;margin-top:20px;background:var(--ink);color:#fff;border:0;border-radius:7px;
+         padding:11px;font:inherit;font-weight:600;cursor:pointer}
+  button:hover{opacity:.92}
+  .err{background:#fef3f2;border:1px solid #fecdca;color:var(--danger);padding:9px 12px;
+       border-radius:7px;font-size:12.5px;margin-bottom:16px}
+  .help{background:#f8f9fb;border:1px solid var(--line);border-radius:8px;padding:11px 13px;
+        font-size:12px;color:var(--mut);margin-top:16px}
+  .back{display:block;text-align:center;margin-top:16px;font-size:12.5px;color:#175cd3;
+        text-decoration:none}
+  .back:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<form class="box" method="POST" action="/recover">
+  <h1>Forgotten password</h1>
+  <div class="sub">Use the recovery code you were given when the account was created.
+    Each code works once.</div>
+  __ERROR__
+  <label for="username">Username</label>
+  <input id="username" name="username" value="__USER__" autocomplete="username" autofocus required>
+
+  <label for="code">Recovery code</label>
+  <input id="code" name="code" class="code" placeholder="XXXX-XXXX-XXXX-XXXX"
+         autocomplete="off" spellcheck="false" required>
+
+  <label for="password">New password</label>
+  <input id="password" name="password" type="password" autocomplete="new-password" required>
+  <div class="help" style="margin-top:6px">At least 10 characters.</div>
+
+  <label for="confirm">Repeat the new password</label>
+  <input id="confirm" name="confirm" type="password" autocomplete="new-password" required>
+
+  <button type="submit">Set a new password</button>
+
+  <div class="help">
+    Dashes and spaces do not matter. If you have lost your code, an administrator can
+    issue a new one from the Team tab, and nobody needs a code at all if somebody
+    else can reset your password for you.
+  </div>
+  <a class="back" href="/login">Back to sign in</a>
+</form>
+</body>
+</html>

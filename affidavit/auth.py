@@ -45,7 +45,14 @@ CREATE TABLE IF NOT EXISTS users (
     iterations    INTEGER NOT NULL,
     disabled      INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT,
-    last_login    TEXT
+    last_login    TEXT,
+    -- One-time code that gets somebody back in when they have forgotten their
+    -- password. Stored hashed, like a password, and cleared once used. There is
+    -- no email and no network here to send a reset link with.
+    recovery_salt       TEXT,
+    recovery_hash       TEXT,
+    recovery_iterations INTEGER,
+    recovery_used_at    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -139,6 +146,108 @@ def set_password(conn: sqlite3.Connection, username: str, password: str) -> bool
     )
     conn.commit()
     return cur.rowcount > 0
+
+
+# ------------------------------------------------------------- recovery code
+#
+# A one-time code that gets somebody back into their own account when they have
+# forgotten their password, with no email and no network involved.
+#
+# Deliberately not a security question. Answers to those are guessable and often
+# findable, and this program makes no network calls so there is nothing to send a
+# reset link with. A long random code that is written down and kept somewhere
+# safe is stronger than either.
+
+# No 0/O or 1/I/L, because these get read off paper and typed by hand.
+_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+_CODE_GROUPS = 4
+_CODE_GROUP_LEN = 4
+
+
+def generate_recovery_code() -> str:
+    """A code in four groups, so it can be read aloud and copied accurately."""
+    groups = [
+        "".join(secrets.choice(_CODE_ALPHABET) for _ in range(_CODE_GROUP_LEN))
+        for _ in range(_CODE_GROUPS)
+    ]
+    return "-".join(groups)
+
+
+def normalise_recovery_code(code: str) -> str:
+    """Accept it however it was typed: spaces, dashes, lower case."""
+    kept = [c for c in (code or "").upper() if c.isalnum()]
+    return "".join(kept)
+
+
+def set_recovery_code(conn: sqlite3.Connection, username: str,
+                      code: str | None = None) -> str:
+    """Store a recovery code for a user, hashed like a password.
+
+    Returns the plain code, which is the only time it exists in readable form.
+    """
+    code = code or generate_recovery_code()
+    salt, digest, iterations = hash_password(normalise_recovery_code(code))
+    conn.execute(
+        "UPDATE users SET recovery_salt=?, recovery_hash=?, recovery_iterations=?, "
+        "recovery_used_at=NULL WHERE username=?",
+        (salt, digest, iterations, username.strip().lower()),
+    )
+    conn.commit()
+    return code
+
+
+def has_recovery_code(conn: sqlite3.Connection, username: str) -> bool:
+    row = conn.execute(
+        "SELECT recovery_hash FROM users WHERE username=?", (username.strip().lower(),)
+    ).fetchone()
+    return bool(row and row["recovery_hash"])
+
+
+def verify_recovery_code(conn: sqlite3.Connection, username: str, code: str) -> bool:
+    username = username.strip().lower()
+    row = conn.execute(
+        """SELECT recovery_salt, recovery_hash, recovery_iterations
+             FROM users WHERE username=?""",
+        (username,),
+    ).fetchone()
+    if row is None or not row["recovery_hash"]:
+        # Spend the same work as a real check, so a missing code and a wrong code
+        # take the same time and cannot be told apart by timing.
+        hash_password("x", secrets.token_hex(16), PBKDF2_ITERATIONS)
+        return False
+    supplied = normalise_recovery_code(code)
+    if not supplied:
+        return False
+    return verify_password(supplied, row["recovery_salt"], row["recovery_hash"],
+                           int(row["recovery_iterations"] or PBKDF2_ITERATIONS))
+
+
+def reset_with_recovery_code(conn: sqlite3.Connection, username: str,
+                             code: str, new_password: str) -> tuple[bool, str]:
+    """Set a new password if the recovery code is right, then burn the code.
+
+    Returns (ok, message). The message is shown to the user, so it never says
+    which of the two was wrong.
+    """
+    username = username.strip().lower()
+    if len(new_password or "") < 10:
+        return False, "The new password needs at least 10 characters."
+    if not verify_recovery_code(conn, username, code):
+        return False, ("That username and recovery code do not match. Check both, "
+                       "and note that a code only works once.")
+
+    set_password(conn, username, new_password)
+    # One use only: the code is cleared, so a lost piece of paper cannot be
+    # reused by whoever finds it.
+    conn.execute(
+        "UPDATE users SET recovery_hash=NULL, recovery_salt=NULL, "
+        "recovery_used_at=? WHERE username=?",
+        (utcnow().isoformat(timespec="seconds"), username),
+    )
+    conn.commit()
+    audit(conn, username, None, "password_reset_with_recovery_code",
+          "recovery code used, code cleared")
+    return True, "Password changed. The recovery code has now been used up."
 
 
 def list_users(conn: sqlite3.Connection) -> list[dict]:
