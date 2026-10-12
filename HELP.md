@@ -64,12 +64,76 @@ exactly what you want, sharing a folder with a colleague for example, but it
 should be a decision rather than an accident.
 
 **The drop folder can be a shared folder** so a colleague can drop a file in from
-another computer.
+another computer. See [One shared folder for the whole team](#one-shared-folder-for-the-whole-team).
 
 ### If a file cannot be read
 
 A note is written to `intake/rejected/` explaining why. **Your original is left
 alone.** Nothing is deleted.
+
+---
+
+## One shared folder for the whole team
+
+If everyone drops documents into one place, point the watcher at that folder
+instead of the local default. Anything anyone puts there is picked up on its own,
+exactly as before.
+
+**In the console:** the drop folder panel has a **Use a shared folder** button.
+Use **Browse...** to pick the folder, or type the path. The setting is saved, so
+it still applies after a restart.
+
+### What the folder can be
+
+| Where it lives | What to give it |
+|---|---|
+| On this computer | `D:\Shared documents` |
+| On the network | `\\server\share\documents`, or a mapped drive such as `Z:\Scans` |
+| Inside OneDrive, Dropbox or Google Drive | The local folder it syncs to, such as `C:\Users\you\OneDrive - Firm\Intake` |
+| A NAS | Its UNC path, or a mapped drive letter |
+
+### Why this works across a network
+
+The watcher **reads the folder** rather than subscribing to filesystem events.
+That is deliberate:
+
+- It works on network shares and on folders synced by other software, where
+  filesystem notifications are unreliable or absent.
+- It survives a dropped connection. If the share goes away and comes back, the
+  next check finds it and carries on. No restart, no error.
+- It waits until a file stops changing, so a colleague's slow copy is never
+  ingested half-finished.
+
+The cost is that a drop takes a few seconds rather than being instant. Within a
+team workflow that is not noticeable.
+
+### Things worth knowing
+
+**Sub-folders are watched too.** People can keep their own structure inside the
+shared folder, and it is preserved in the Library, so you can still tell where a
+document came from.
+
+**Your files are copied, never moved.** The shared folder is left exactly as it
+was, so nobody's copy disappears.
+
+**A folder that cannot be reached is refused, not accepted.** If you give a path
+that does not exist and cannot be created, or that cannot be written to, the
+console says so. This matters for a network share that has dropped out, because
+it otherwise looks like a perfectly normal path.
+
+**The folder chooser only works on the computer running the app.** A dialog
+cannot be opened on somebody else's screen, so a colleague connecting over the
+network is told to type the path instead.
+
+**If the shared folder is inside OneDrive, Dropbox or Drive, the console warns
+you.** Documents placed there are being copied to that service. That may be
+exactly what you want, but it should be a decision rather than an accident.
+
+### Running it on a machine that stays on
+
+For a team, the weak point is running the app on somebody's laptop: close the lid
+and it stops. Put it on a desktop that stays on, or a small always-on machine,
+and point it at the shared folder. Then nobody has to think about it.
 
 ---
 

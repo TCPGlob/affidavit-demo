@@ -89,6 +89,20 @@ order you set.
 
 ---
 
+### A shared folder the whole team drops into
+
+If everyone puts documents in one place, point the watcher at it. In the console,
+use **Use a shared folder** on the drop folder panel, then **Browse...** or type
+the path. It is saved, so it still applies after a restart.
+
+Network paths look like `\\server\share\documents`, or a mapped drive such as
+`Z:\Scans`. Sub-folders are watched too, and files are copied, never moved.
+
+Detail, including why this works over a network and what happens when a share
+drops out, is in [HELP.md](HELP.md).
+
+---
+
 ## Stopping and restarting
 
 - **To stop:** close the black window, or press Ctrl+C in it.

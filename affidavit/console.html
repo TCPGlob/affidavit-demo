@@ -835,10 +835,10 @@ function renderSync() {
         <div style="flex:0 0 auto;text-align:right">
           <button class="btn sec" onclick="openFolderHelp()">Where do I put files?</button>
           <div style="margin-top:8px">
-            <button class="btn sec" onclick="clearLibrary()">Replace the sample documents</button>
+            <button class="btn sec" onclick="openChangeFolder()">Use a shared folder</button>
           </div>
-          <div class="sub" style="margin-top:6px;max-width:190px">
-            Clears the samples so you can work with your own.
+          <div style="margin-top:8px">
+            <button class="btn sec" onclick="clearLibrary()">Replace the sample documents</button>
           </div>
         </div>
       </div>
@@ -886,6 +886,100 @@ function openFolderHelp() {
       <button class="btn primary" onclick="closeModal()">Got it</button>
     </div>`;
   document.getElementById('modal').classList.add('on');
+}
+
+function openChangeFolder() {
+  const current = (SYNC && SYNC.status) ? SYNC.status.watch_dir : '';
+  document.getElementById('sheet').innerHTML = `
+    <h2>Use a shared folder</h2>
+    <p style="font-size:13.5px;line-height:1.6">
+      If everyone drops documents into one folder, point the watcher at it and
+      anything anyone puts there is picked up on its own, exactly as before.
+    </p>
+    <label for="wdir">Folder to watch</label>
+    <div style="display:flex;gap:8px;align-items:stretch">
+      <input type="text" id="wdir" value="${esc(current)}"
+        placeholder="\\\\server\\shared\\documents  or  Z:\\Scans" style="flex:1">
+      <button class="btn sec" id="wbrowse" onclick="browseFolder()"
+        title="Open a folder chooser on this computer">Browse...</button>
+    </div>
+    <div class="sub" style="margin-top:8px">
+      <b>On this computer:</b> a path like <code>D:\\Shared documents</code><br>
+      <b>On the network:</b> a UNC path like <code>\\\\server\\share\\folder</code>,
+      or a mapped drive such as <code>Z:\\Scans</code><br>
+      <b>Synced services:</b> the local folder they sync to, such as
+      <code>C:\\Users\\you\\OneDrive - Firm\\Intake</code>
+    </div>
+    <div class="sub" style="margin-top:10px">
+      Sub-folders are watched too, so people can keep their own structure inside
+      it. The folder is checked every few seconds, which is why this works
+      across a network: it reads the folder rather than watching the filesystem,
+      and that survives a dropped connection.
+    </div>
+    <div class="sub" style="margin-top:10px">
+      <b>Your files are copied, never moved</b>, so the shared folder keeps
+      everything exactly as it was.
+    </div>
+    <div class="sub" style="margin-top:10px">
+      The setting is saved, so it still applies after a restart.
+    </div>
+    <div id="wderr"></div>
+    <div class="actions">
+      <button class="btn sec" onclick="closeModal()">Cancel</button>
+      <button class="btn sec" onclick="document.getElementById('wdir').value='';">
+        Use the local default</button>
+      <button class="btn primary" id="wgo" onclick="doSetFolder()">Watch this folder</button>
+    </div>`;
+  document.getElementById('modal').classList.add('on');
+  setTimeout(() => document.getElementById('wdir').focus(), 50);
+}
+
+async function browseFolder() {
+  const btn = document.getElementById('wbrowse');
+  const err = document.getElementById('wderr');
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Choosing...';
+  err.innerHTML = '';
+  try {
+    const out = await post('api/pickfolder', {});
+    if (out && out.folder) {
+      document.getElementById('wdir').value = out.folder;
+    } else if (out && out.cancelled) {
+      // The user closed the dialog. Nothing to say.
+    } else {
+      err.innerHTML = `<div class="err" style="margin-top:10px">${esc(
+        (out && out.error) || 'The folder chooser did not open. Type the path instead.')}</div>`;
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
+async function doSetFolder() {
+  const err = document.getElementById('wderr');
+  const folder = document.getElementById('wdir').value.trim();
+  if (!folder) {
+    err.innerHTML = '<div class="err">Give a folder path, or choose the local default.</div>';
+    return;
+  }
+  document.getElementById('wgo').disabled = true;
+  err.innerHTML = '<div class="sub" style="margin-top:10px">Checking the folder...</div>';
+  const out = await post('api/watchdir', {folder});
+  document.getElementById('wgo').disabled = false;
+  if (!out || out.error) {
+    err.innerHTML = `<div class="err" style="margin-top:10px">${esc(
+      (out && out.error) || 'That folder could not be used.')}</div>`;
+    return;
+  }
+  closeModal();
+  toast('Now watching the new folder');
+  await refreshAll();
+  await loadSync();
+  if (out.cloud_warning) {
+    toast(`Note: that folder syncs to ${out.cloud_warning}`);
+  }
 }
 
 async function clearLibrary() {

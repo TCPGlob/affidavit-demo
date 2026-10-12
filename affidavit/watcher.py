@@ -100,13 +100,38 @@ class Watcher:
         self.conn = conn
         self.cfg = cfg
         self.lock_name = lock_name
-        self.watch_dir = cfg.watch_dir
-        self.source_dir = cfg.source_dir
-        self.reject_dir = cfg.reject_dir
         # path -> (size, mtime_ns, first_seen_monotonic)
         self._seen: dict[Path, tuple[int, int, float]] = {}
         self._owner = f"{socket.gethostname()}:{os.getpid()}"
         self.state = WatcherState(watch_dir=str(self.watch_dir))
+
+    # ----------------------------------------------------------- locations
+    #
+    # These read through to the config rather than being copied at start-up, so
+    # the watched folder can be pointed at a shared drive from the console
+    # without restarting the app.
+
+    @property
+    def watch_dir(self) -> Path:
+        return self.cfg.watch_dir
+
+    @property
+    def source_dir(self) -> Path:
+        return self.cfg.source_dir
+
+    @property
+    def reject_dir(self) -> Path:
+        return self.cfg.reject_dir
+
+    def refresh_locations(self) -> None:
+        """Pick up a changed watch folder.
+
+        The pending set is dropped, because every entry in it belongs to the
+        previous folder. Files already taken are still remembered by content
+        hash, so nothing is copied in twice.
+        """
+        self._seen.clear()
+        self.state.watch_dir = str(self.watch_dir)
 
     # ---------------------------------------------------------------- lock
 

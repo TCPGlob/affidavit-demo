@@ -154,6 +154,12 @@ class _Ctx:
         self.cfg = cfg
         self.require_auth = require_auth
         self.secure_cookie = secure_cookie
+        # Where the settings file lives, so a console change can be saved.
+        # The source folder sits inside the project root.
+        try:
+            self.root = cfg.source_dir.resolve().parent.parent
+        except (AttributeError, OSError):
+            self.root = Path(".").resolve()
 
 
 def _cookie_token(header: str | None) -> str | None:
@@ -426,6 +432,10 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
                             self._handle_ocr_run(c, actor, raw)
                         elif path == "/api/library/reset":
                             self._handle_library_reset(c, actor, raw)
+                        elif path == "/api/watchdir":
+                            self._handle_set_watch_dir(c, actor, raw)
+                        elif path == "/api/pickfolder":
+                            self._handle_pick_folder(c, actor)
                         elif path == "/api/users/create":
                             self._handle_user_create(c, actor, raw)
                         elif path == "/api/users/update":
@@ -455,18 +465,144 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
             include_source = bool(body.get("clear_samples"))
             result = {"removed": 0}
             if include_source:
-                result = db.reset_library(c, self.cfg)
+                result = db.reset_library(c, ctx.cfg)
             else:
                 db.reset(c)
                 c.commit()
                 import shutil
 
-                for d in (self.cfg.work_dir / "normalized", self.cfg.work_dir / "ocr"):
+                for d in (ctx.cfg.work_dir / "normalized", ctx.cfg.work_dir / "ocr"):
                     shutil.rmtree(d, ignore_errors=True)
 
             auth.audit(c, actor, None, "library_reset",
                        f"clear_samples={include_source} removed={result['removed']}")
             self._json({"ok": True, **result})
+
+        def _handle_set_watch_dir(self, c, actor: str | None, raw: bytes) -> None:
+            """Point the watched folder at a shared or synced folder.
+
+            A team that all drop documents into one shared folder needs the
+            watcher to look there instead of the local default. The setting is
+            written to the config file so it survives a restart.
+            """
+            from . import config as config_mod
+            from . import watcher as watcher_mod
+
+            try:
+                body = json.loads(raw or b"{}")
+            except (json.JSONDecodeError, TypeError):
+                body = {}
+
+            if not self._require_admin(c, actor):
+                return
+
+            ok, detail = config_mod.set_watch_dir(ctx.cfg, body.get("folder", ""))
+            if not ok:
+                self._json({"error": detail}, 400)
+                return
+
+            saved = config_mod.save_config(ctx.cfg, ctx.root)
+            ctx.cfg.ensure_dirs()
+
+            # The running watcher reads its folder from the config object, which
+            # is the one just changed, so it follows on its next pass with no
+            # restart. Its status row is updated so the panel shows the new path
+            # immediately rather than one poll later.
+            try:
+                c.execute(
+                    "UPDATE sync_state SET value=? WHERE key=?",
+                    (json.dumps({"watch_dir": str(ctx.cfg.watch_dir)}),
+                     "watcher_display"),
+                )
+                c.commit()
+            except Exception:  # noqa: BLE001
+                pass
+
+            cloud = watcher_mod.looks_like_cloud_folder(ctx.cfg.watch_dir)
+            auth.audit(c, actor, None, "watch_dir_set", detail)
+            self._json({
+                "ok": True, "folder": detail, "saved_to": str(saved),
+                "cloud_warning": cloud,
+            })
+
+        def _handle_pick_folder(self, c, actor: str | None) -> None:
+            """Open a real folder chooser on the computer running this app.
+
+            Much better than asking a non-technical user to type a UNC path.
+
+            Only meaningful when the browser is on the same machine. The server
+            binds 0.0.0.0 so colleagues can connect, and a dialog cannot appear
+            on somebody else's screen, so a remote request is refused with an
+            explanation rather than silently doing nothing.
+            """
+            import platform
+            import subprocess
+            import tempfile
+
+            if not self._require_admin(c, actor):
+                return
+
+            client = self.client_address[0] if self.client_address else ""
+            if client not in ("127.0.0.1", "::1", "localhost"):
+                self._json({
+                    "error": "The folder chooser only works on the computer running "
+                             "this app. A dialog cannot open on someone else's screen, "
+                             "so type the path instead.",
+                }, 400)
+                return
+
+            system = platform.system()
+            try:
+                if system == "Windows":
+                    script = (
+                        "Add-Type -AssemblyName System.Windows.Forms | Out-Null\n"
+                        "$d = New-Object System.Windows.Forms.FolderBrowserDialog\n"
+                        "$d.Description = 'Choose the folder to watch for documents'\n"
+                        "$d.ShowNewFolderButton = $true\n"
+                        "if ($d.ShowDialog() -eq 'OK') { "
+                        "[Console]::Out.Write($d.SelectedPath) }\n"
+                    )
+                    with tempfile.NamedTemporaryFile("w", suffix=".ps1", delete=False,
+                                                     encoding="utf-8") as fh:
+                        fh.write(script)
+                        script_path = fh.name
+                    try:
+                        proc = subprocess.run(
+                            ["powershell", "-NoProfile", "-STA",
+                             "-ExecutionPolicy", "Bypass", "-File", script_path],
+                            capture_output=True, text=True, timeout=300,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                        )
+                    finally:
+                        try:
+                            Path(script_path).unlink()
+                        except OSError:
+                            pass
+                elif system == "Darwin":
+                    proc = subprocess.run(
+                        ["osascript", "-e",
+                         'POSIX path of (choose folder with prompt '
+                         '"Choose the folder to watch for documents")'],
+                        capture_output=True, text=True, timeout=300)
+                else:
+                    # No dependable dialog across Linux desktops, so ask the
+                    # browser to accept a typed path rather than fail.
+                    self._json({"error": "This system has no folder chooser here. "
+                                         "Type the path instead."}, 400)
+                    return
+            except subprocess.TimeoutExpired:
+                self._json({"error": "The folder chooser was left open and timed out."}, 400)
+                return
+            except FileNotFoundError:
+                self._json({"error": "The folder chooser is not available on this "
+                                     "computer. Type the path instead."}, 400)
+                return
+
+            picked = (proc.stdout or "").strip()
+            if not picked:
+                self._json({"ok": False, "cancelled": True})
+                return
+            self._json({"ok": True, "folder": picked})
 
         def _handle_login(self, c, raw: bytes) -> None:
             from urllib.parse import parse_qs

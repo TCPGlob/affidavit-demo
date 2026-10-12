@@ -147,6 +147,69 @@ class Config:
         return json.dumps(d, indent=2)
 
 
+def save_config(cfg: Config, root: Path | str = ".") -> Path:
+    """Write the settings file, so a change made in the console survives a restart.
+
+    Paths that live inside the project are stored relative to it, so the folder
+    can be moved or copied to another machine without breaking.
+    """
+    root = Path(root).resolve()
+    d = asdict(cfg)
+    d.pop("extra", None)
+    for key in ("source_dir", "work_dir", "output_dir", "db_path"):
+        value = d.get(key)
+        if value:
+            try:
+                d[key] = str(Path(value).resolve().relative_to(root))
+            except (ValueError, OSError):
+                d[key] = str(value)
+    path = root / CONFIG_FILENAME
+    path.write_text(json.dumps(d, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def set_watch_dir(cfg: Config, folder: str) -> tuple[bool, str]:
+    """Point the watcher at a folder, checking it is usable first.
+
+    A shared or synced folder is a normal thing to watch, so a path that does
+    not exist yet is created rather than refused. A path that exists but cannot
+    be written to is refused, because the rejected-file notes are written back
+    into the watched area.
+    """
+    folder = (folder or "").strip().strip('"')
+    if not folder:
+        return False, "Give a folder path."
+
+    candidate = Path(folder).expanduser()
+    try:
+        candidate = candidate.resolve()
+    except OSError:
+        pass
+
+    if candidate.exists() and not candidate.is_dir():
+        return False, f"That is a file, not a folder: {candidate}"
+
+    try:
+        candidate.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return False, (f"That folder cannot be created or reached: {exc}. "
+                       "Check the path, and that the drive is connected.")
+
+    # A quick write test. A network share that has dropped out looks like a
+    # normal path until something tries to use it.
+    probe = candidate / ".affidavit-write-test"
+    try:
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as exc:
+        return False, (f"That folder cannot be written to: {exc}. "
+                       "If it is a shared drive, check it is connected and that "
+                       "you have permission to create files there.")
+
+    cfg.sync_watch_dir = str(candidate)
+    return True, str(candidate)
+
+
 def load_config(root: Path | str = ".") -> Config:
     """Load config from affidavit.config.json if present, else defaults."""
     root = Path(root)

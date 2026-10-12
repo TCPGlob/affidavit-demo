@@ -222,6 +222,31 @@ function runChecks() {
           html.includes('Do not put documents here'), '');
   } catch (e) { check('the folder help names the folder to put files in', false, e.message); }
 
+  // Pointing the watcher at a shared folder, which a team needs.
+  try {
+    sandbox.closeModal();
+    sandbox.openChangeFolder();
+    const html = els['sheet'] ? els['sheet'].innerHTML : '';
+    check('there is a way to choose a shared folder',
+          html.includes('Use a shared folder') || html.includes('Folder to watch'), '');
+    check('it offers a native folder chooser',
+          html.includes('browseFolder()'), 'Browse button present');
+    check('and explains UNC and mapped drives for a network share',
+          html.includes('unc') || html.includes('UNC') || html.includes('\\\\server'),
+          'network path guidance present');
+  } catch (e) { check('there is a way to choose a shared folder', false, e.message); }
+
+  try {
+    let asked = null;
+    const realPost = sandbox.post;
+    sandbox.post = (url, body) => { asked = { url, body }; return Promise.resolve({ok: true, folder: 'D:/Shared'}); };
+    sandbox.browseFolder().then(() => {
+      check('the chooser asks the server to open a dialog',
+            asked && asked.url.includes('pickfolder'), asked ? asked.url : 'never called');
+    });
+    sandbox.post = realPost;
+  } catch (e) { check('the chooser asks the server to open a dialog', false, e.message); }
+
   check('every element the script asks for exists in the markup',
         missing.size === 0, [...missing].join(', '));
 
