@@ -3,8 +3,8 @@ All is complete, just tweaks and modifications as per the client's requests
 
 Two separate things:
 
-- **Part 1** — getting it running for you and your team.
-- **Part 2** — showing it to a client so they can decide.
+- **Part 1**. getting it running for you and your team.
+- **Part 2**. showing it to a client so they can decide.
 
 You do **not** need a command line for either. Every account is created in the
 browser.
@@ -13,7 +13,7 @@ browser.
 
 ---
 
-# Part 1 — Running it for your team
+# Part 1. Running it for your team
 
 ## On Windows: double-click a file
 
@@ -26,9 +26,9 @@ browser.
 The first time you run `start-windows.bat`:
 
 1. A black window opens and installs what the app needs (a minute or two).
-2. Your browser opens on a **"Welcome — let's set up"** page.
+2. Your browser opens on a **"Welcome, let's set up"** page.
 3. You type your name, a username and a password. **That account is the
-   administrator.**
+administrator.**
 4. You are signed in and can start work.
 
 On macOS or Linux, double-click **`start-mac-linux.command`** instead. (The first
@@ -36,25 +36,25 @@ time, macOS may ask you to confirm you trust the file.)
 
 To stop the app, close the black window.
 
-## Adding your colleagues — in the browser, no command line
+## Adding your colleagues. in the browser, no command line
 
 Once you are signed in, open the **Team** tab:
 
 1. Click **+ Add a colleague**.
 2. Type their name, a username, and a temporary password.
 3. Choose **Reviewer** (can work on documents) or **Administrator** (can also
-   manage accounts).
+manage accounts).
 4. Click **Create account**, then tell them the password.
 
 They can sign in immediately, and change their own password from the same screen.
 
 On that same tab you can:
 
-- **Reset password** — for someone who has forgotten theirs.
-- **Disable** — for someone who has left. They are signed out at once and cannot
-  sign back in. Their work and the record of what they did are kept, and you can
-  re-enable them later.
-- **Change my password** — for your own account.
+- **Reset password**. for someone who has forgotten theirs.
+- **Disable**. for someone who has left. They are signed out at once and cannot
+sign back in. Their work and the record of what they did are kept, and you can
+re-enable them later.
+- **Change my password**. for your own account.
 
 Everything above is also possible from the command line (`python pipeline.py
 create-user …`) if you prefer, but nothing requires it.
@@ -68,10 +68,10 @@ To let colleagues connect, **double-click `share-windows.bat`**. It prints the
 address to hand out:
 
 ```
-Same office / same wifi    http://10.33.38.26:8765/
+Same office / same wifi http://10.33.38.26:8765/
 ```
 
-Give colleagues that address. They need nothing installed — just a browser. You
+Give colleagues that address. They need nothing installed, just a browser. You
 keep the black window open; it is the server.
 
 The same thing from a terminal, if you prefer:
@@ -99,7 +99,7 @@ There are two different situations, and they need different answers.
 | At home, or on mobile data | A **private network between the computers**. The office address will not work. |
 
 A `10.33.x.x` or `192.168.x.x` address only exists inside one building. It is
-meaningless from a home connection — this is not a setting you can change, it is
+meaningless from a home connection. This is not a setting you can change, it is
 how home and office networks work.
 
 ## The easy answer: Tailscale
@@ -117,8 +117,8 @@ Addresses beginning `100.` in the output are the Tailscale ones and **work from
 anywhere**. Give colleagues that address instead of the office one:
 
 ```
-Tailscale (works anywhere)  http://100.101.102.103:8765/
-Same office / same wifi     http://10.33.38.26:8765/
+Tailscale (works anywhere) http://100.101.102.103:8765/
+Same office / same wifi http://10.33.38.26:8765/
 ```
 
 That is the whole setup. The documents never touch the public internet; Tailscale
@@ -127,13 +127,12 @@ carries the traffic directly between your computers, encrypted.
 > **WireGuard** is already installed on some machines and does the same job, but
 > it requires someone to configure a server and hand out keys. Tailscale is the
 > same technology with the setup done for you. If your IT already runs a
-> WireGuard or OpenVPN server, use that instead — connect first, then use the
+> WireGuard or OpenVPN server, use that instead. connect first, then use the
 > address `share` prints.
 
 ## The better answer for a real firm: a machine of their own
 
-For ongoing client work, running it on somebody's laptop is the weak point —
-close the lid and the app is down for everyone. The sturdier arrangement:
+For ongoing client work, running it on somebody's laptop is the weak point: close the lid and the app is down for everyone. The sturdier arrangement:
 
 - One always-on computer at the firm (a small server, or a machine nobody moves)
 - Tailscale installed on it and on everyone who needs access
@@ -145,7 +144,7 @@ Nothing is exposed to the internet, and it keeps working when laptops close.
 ## When it must face the internet
 
 Sometimes a firm insists on a plain web address. Then it **must** sit behind
-HTTPS, and `--secure-cookie` must be used — without the padlock, sign-in
+HTTPS, and `--secure-cookie` must be used. Without the padlock, sign-in
 passwords travel in the clear across the internet.
 
 Ask whoever manages their IT to put a small piece of software in front of it
@@ -157,8 +156,7 @@ public internet talks to.
 ## When someone genuinely cannot connect
 
 The last resort is to install the app on their own computer, with their own copy
-of the documents. It works, but **each copy is its own separate library** —
-collections are not shared, and two people will not see each other's work. Use it
+of the documents. It works, but **each copy is its own separate library**, collections are not shared, and two people will not see each other's work. Use it
 only if a private network is impossible.
 
 ---
@@ -178,7 +176,7 @@ only if a private network is impossible.
 
 ---
 
-# Part 2 — Showing it to a client
+# Part 2. Showing it to a client
 
 ## The one thing to be clear about
 
@@ -196,7 +194,7 @@ So a demo can show everything *up to* Zibbit, but not Zibbit itself:
 | Producing the index | |
 | | Importing the PDFs into Zibbit |
 
-Say that out loud during the demo. It is not a weakness — the pipeline's job is
+Say that out loud during the demo. It is not a weakness: the pipeline's job is
 to hand Zibbit a clean, ordered bundle, and that is the part that takes the time.
 
 **In normal use everything stays on the firm's own computer.** The app makes no
@@ -221,7 +219,7 @@ with everything ready. Nothing to install and no link to share.
 
 Use this when you want the client to click around on their own, without
 installing anything on their computer. It needs the project to be on GitHub
-first — the note at the end of this file explains that if it is not there yet.
+first. The note at the end of this file explains that if it is not there yet.
 Then open a Codespace on it and, in the terminal that appears, run:
 
 ```bash
@@ -234,10 +232,10 @@ Codespaces forwards the port; set it to **Public** and send them the URL.
 ## Docker, if your IT prefers it
 
 ```bash
-docker build -t aod .
+docker build -t aod.
 docker run -d --name aod-demo -p 8080:8765 aod \
-  python pipeline.py --root /data review --demo \
-  --host 0.0.0.0 --port 8765 --no-browser
+python pipeline.py --root /data review --demo \
+--host 0.0.0.0 --port 8765 --no-browser
 ```
 
 For real use, run it with sign-in required (the default in the image) and behind
@@ -248,27 +246,27 @@ HTTPS. Create the first account from the browser, exactly as above.
 ## A five-minute demo script
 
 1. **The Library.** "This is everything that arrived, already converted to PDF
-   and tagged with its type, date and page count. Duplicates were collapsed."
-   Point at the `2 COPIES` badge on the invoice.
+and tagged with its type, date and page count. Duplicates were collapsed."
+Point at the `2 COPIES` badge on the invoice.
 2. **Scanned documents.** Point at the OCR panel. "Scans get read too, on this
-   machine — no cloud service. This receipt had no date we could see; now it's
-   2024-04-12."
+machine, with no cloud service. This receipt had no date we could see; now it's
+2024-04-12."
 3. **Tick three or four documents.** The black bar appears.
 4. **Create a collection** and name it. "That name becomes the folder."
 5. **Convert & export.** The result appears with the folder path.
 6. **Open the folder.** Show `PDFs/`, the numbered files, the Word index and
-   `index.csv`.
+`index.csv`.
 7. **Open the Word index.** Everything in order, with dates and page counts.
 8. **Import into Zibbit.** Say clearly: this part is on their machine.
-9. **Team tab.** Show the activity record — who did what — and the account list.
+9. **Team tab.** Show the activity record of who did what, and the account list.
 
 ### The two questions they will ask
 
 **"What if it gets a document wrong?"**
 It never decides anything about content. Conversion, naming, ordering and
 numbering are mechanical. If a document cannot be converted it is listed under
-**Not included** with the reason — visibly, in the console, the Word sheet, the
-CSV and the manifest — rather than quietly disappearing.
+**Not included** with the reason. visibly, in the console, the Word sheet, the
+CSV and the manifest, rather than quietly disappearing.
 
 **"What about confidentiality?"**
 Nothing leaves the machine. No accounts with cloud services, no API keys. Offer
@@ -280,9 +278,9 @@ to switch the WiFi off and carry on using it.
 
 - **A demo instance uses sample documents only.** Anyone with the link can reach it.
 - **Never put a real client file into a demo.** Once it is uploaded, it is on
-  whatever computer is hosting the demo.
+whatever computer is hosting the demo.
 - For real work, run it on the firm's own machine or private server, with
-  sign-in turned on.
+sign-in turned on.
 
 The project is set up so that **documents are never uploaded to GitHub**. The
 intake folder, the working files and the finished bundles are all excluded, and
@@ -298,8 +296,8 @@ in the project folder:
 
 ```
 git init
-git add .
-git status          # read this: intake, work and output must NOT appear
+git add.
+git status # read this: intake, work and output must NOT appear
 git commit -m "Document preparation pipeline"
 git remote add origin https://github.com/<your-account>/<your-project>.git
 git push -u origin main
@@ -317,7 +315,7 @@ here that the automated checks cannot undo for you.
 |---|---|
 | "Python is not installed" | Install it from python.org and tick **Add Python to PATH** during setup. |
 | The browser does not open | Open `http://127.0.0.1:8765/` yourself. |
-| "Address already in use" | The app is probably already running — check for the black window. |
+| "Address already in use" | The app is probably already running. check for the black window. |
 | Scans are not being read | OCR is not installed. Run `winget install UB-Mannheim.TesseractOCR` and restart. |
 | You forgot your administrator password | Stop the app, then run `python pipeline.py users --reset-password your-username`. |
 | A conversion shows `PLACEHOLDER` | LibreOffice is missing: `winget install TheDocumentFoundation.LibreOffice`. |
@@ -334,8 +332,8 @@ of anything that could not be processed.
 Not yet:
 
 - Long scanned documents are read up to the first 25 pages by default
-  (`ocr_max_pages` in `affidavit.config.json`).
+(`ocr_max_pages` in `affidavit.config.json`).
 - No connection to SharePoint or Google Drive; documents are read from the
-  `intake` folder.
+`intake` folder.
 - Built for a handful of people. Beyond roughly ten working at once, it needs a
-  different database.
+different database.

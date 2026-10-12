@@ -32,11 +32,43 @@ BANNER = "=" * 66
 
 
 def _open_db(cfg: Config, reset: bool = False):
-    conn = db.connect(cfg.db_path)
-    db.init(conn)
-    if reset:
-        db.reset(conn)
-    return conn
+    """Open the database, explaining clearly if it is unreadable.
+
+    A raw sqlite traceback tells a non-technical user nothing useful, and the
+    usual cause is recoverable: the file was corrupted by a crash or a partial
+    copy. Say so, and say what to do.
+    """
+    import sqlite3
+
+    try:
+        conn = db.connect(cfg.db_path)
+        db.init(conn)
+        if reset:
+            db.reset(conn)
+        return conn
+    except sqlite3.DatabaseError as exc:
+        print()
+        print("=" * 66)
+        print("  THE WORKING DATABASE CANNOT BE OPENED")
+        print("=" * 66)
+        print(f"  {cfg.db_path}")
+        print(f"  {exc}")
+        print()
+        print("  This file holds the record of what has been processed. It may")
+        print("  have been damaged by a crash or a copy that was interrupted.")
+        print()
+        print("  Your documents are NOT affected - they are still in")
+        print(f"    {cfg.source_dir}")
+        print("  as you left them.")
+        print()
+        print("  To rebuild the record, run the pipeline again:")
+        print("    python pipeline.py run --fresh")
+        print()
+        print("  If that fails too, rename the work folder and start over:")
+        print(f"    ren \"{cfg.work_dir}\" work-old")
+        print("    python pipeline.py run --fresh")
+        print()
+        raise SystemExit(1)
 
 
 def cmd_init(args) -> int:

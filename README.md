@@ -1,4 +1,4 @@
-# Document Preparation Pipeline — feeding Zibbit
+# Document Preparation Pipeline. feeding Zibbit
 
 A local-first pipeline that takes a folder of mixed documents, converts them to
 PDF, and produces **numbered, ordered PDF bundles ready to import into Zibbit**,
@@ -17,32 +17,32 @@ The workflow, in one line:
 ## Zibbit is fed PDFs
 
 That is the contract, so it shapes the output. **The `PDFs` folder is the
-product** — its files are already numbered in the order you set, so Zibbit sees
+product**: its files are already numbered in the order you set, so Zibbit sees
 the bundle in the right sequence.
 
 ```
 output/collections/<Your Name>/
-    PDFs/                          ← import THIS into Zibbit
-        001 - Engagement Letter.pdf
-        002 - Statement of Claim.pdf
-        003 - Demand Letter.pdf
-    index.csv                      contents list, for a spreadsheet
-    manifest.json                  same, for later tooling
-    00 - <Your Name> - Index.docx  readable index sheet for your own reference
+PDFs/ ← import THIS into Zibbit
+001 - Engagement Letter.pdf
+002 - Statement of Claim.pdf
+003 - Demand Letter.pdf
+index.csv contents list, for a spreadsheet
+manifest.json same, for later tooling
+00 - <Your Name> - Index.docx readable index sheet for your own reference
 ```
 
-The Word file is a convenience and a record of what was included — **Zibbit does
+The Word file is a convenience and a record of what was included. **Zibbit does
 not need it**. It is generated because a human occasionally needs to read the
 bundle list without opening eight PDFs.
 
 ---
 
-## The drop folder — copy a file and it appears
+## The drop folder. copy a file and it appears
 
 ```bash
-python pipeline.py review        # console and watcher together
-python pipeline.py watch         # the watcher on its own
-python pipeline.py watch --once  # a single pass, for testing
+python pipeline.py review # console and watcher together
+python pipeline.py watch # the watcher on its own
+python pipeline.py watch --once # a single pass, for testing
 ```
 
 Copy documents into **`intake/incoming/`** and they are picked up within a few
@@ -60,7 +60,7 @@ someone remembers to run.
 | `.crdownload`, `.part`, `.tmp`, `~$` ignored | They are half-written, not documents |
 | Polling rather than filesystem events | No dependency, and it behaves predictably with cloud-synced folders that deliver files in bursts |
 | One watcher per drop folder | A lock row in the database; two watchers would duplicate work |
-| Only new documents are processed | Re-running the whole pipeline per drop is O(n²) — 500 documents would mean 125,000 passes |
+| Only new documents are processed | Re-running the whole pipeline per drop is O(n²). 500 documents would mean 125,000 passes |
 
 The drop folder can itself be a **shared or synced folder**, so a colleague can
 drop a file in from another computer. If it sits inside OneDrive, Dropbox or
@@ -76,19 +76,19 @@ the reason. **Your original is left alone.**
 
 Draft collections sit in `output/collections/` and stay in the Collections list
 until you export them. **Exporting moves the bundle to
-`output/collections/finished/` and it disappears from the console** — what you
+`output/collections/finished/` and it disappears from the console**. What you
 see there is live work only.
 
 ```
 output/collections/
 ├── finished/
-│   └── Service Bundle/
-│       ├── PDFs/001 - Affidavit of Service.pdf
-│       ├── index.csv
-│       ├── manifest.json
-│       ├── 00 - Service Bundle - Index.docx
-│       └── COMPLETE          <- written last, carries a hash of everything else
-└── archive/                  <- optional, your own arrangement
+│ └── Service Bundle/
+│ ├── PDFs/001 - Affidavit of Service.pdf
+│ ├── index.csv
+│ ├── manifest.json
+│ ├── 00 - Service Bundle - Index.docx
+│ └── COMPLETE <- written last, carries a hash of everything else
+└── archive/ <- optional, your own arrangement
 ```
 
 The `COMPLETE` marker is the contract: any tool consuming a bundle should wait
@@ -97,12 +97,12 @@ of every other file, so a later modification is detectable.
 
 ---
 
-## Quick start — one machine
+## Quick start. one machine
 
 ```bash
-python pipeline.py demo        # create a synthetic intake folder (17 files)
-python pipeline.py run         # ingest, convert, tag
-python pipeline.py review      # open the console
+python pipeline.py demo # create a synthetic intake folder (17 files)
+python pipeline.py run # ingest, convert, tag
+python pipeline.py review # open the console
 ```
 
 Then open <http://127.0.0.1:8765/>. Binds to localhost only, no sign-in needed.
@@ -111,7 +111,7 @@ In the console: tick documents in the **Library**, choose **+ New collection**,
 name it, and hit **Create & convert**. The bundle is written and the path is
 shown on screen.
 
-## Quick start — show it to a client
+## Quick start. show it to a client
 
 One command, synthetic documents, sign-in off:
 
@@ -119,13 +119,13 @@ One command, synthetic documents, sign-in off:
 python pipeline.py review --demo
 ```
 
-Or hand them a link — see [SETUP.md](SETUP.md) for a plain-language walkthrough,
+Or hand them a link. See [SETUP.md](SETUP.md) for a plain-language walkthrough,
 GitHub Codespaces, Docker, and a five-minute demo script.
 
 > **Demo mode is synthetic data only.** Anyone with the URL can reach it. Never
 > upload client material to a demo instance.
 
-## Quick start — Windows, no command line
+## Quick start. Windows, no command line
 
 Double-click one of these:
 
@@ -137,20 +137,20 @@ Double-click one of these:
 
 The first run opens a **Welcome** page in your browser where you create your own
 account. **That first account is the administrator**, and you add colleagues from
-the **Team** tab inside the app — no command line needed.
+the **Team** tab inside the app, with no command line needed.
 
 On macOS or Linux, run `./start-mac-linux.command`.
 
-## Quick start — shared by a team
+## Quick start. shared by a team
 
 ```bash
-python pipeline.py review --users          # each person gets their own sign-in
+python pipeline.py review --users # each person gets their own sign-in
 ```
 
 Open <http://127.0.0.1:8765/> and create your account on the Welcome page.
 
 From then on, the **Team** tab lets an administrator add colleagues, reset a
-forgotten password, and disable someone who has left — all in the browser.
+forgotten password, and disable someone who has left, all in the browser.
 
 Command-line equivalents still exist if you prefer them:
 
@@ -163,7 +163,7 @@ python pipeline.py users --reset-password jane
 pick up work. Each collection records who started it and who last exported it,
 and the Team tab shows a live activity feed and the record of who did what.
 
-### Shared pool vs. sign-in — the distinction that matters
+### Shared pool vs. sign-in. the distinction that matters
 
 These are two independent settings, and it is easy to conflate them:
 
@@ -174,7 +174,7 @@ These are two independent settings, and it is easy to conflate them:
 | Detects conflicting edits | ✅ | ✅ |
 
 Running without `--require-auth` gives you a shared pool with **no identity
-tracking** — convenient on one laptop, but you lose the audit trail and every
+tracking**: convenient on one laptop, but you lose the audit trail and every
 edit is recorded as "local". For a team, use `--require-auth`.
 
 ### Conflicting edits are detected, never silent
@@ -182,7 +182,7 @@ edit is recorded as "local". For a team, use `--require-auth`.
 Two people can work in the same collection at once. Each editable row carries a
 version; when you save, you send the version you were looking at. If someone
 else has changed it since, your save is **refused** and you are shown both
-versions to choose between — rather than your typing quietly overwriting theirs.
+versions to choose between, rather than your typing quietly overwriting theirs.
 
 Adding the same document twice is a no-op, so two people tidying the same bundle
 cannot create duplicates.
@@ -204,7 +204,7 @@ Tested directly with three accounts signed in at once:
 | Conflicting edit to the same field | **refused**, not silently applied |
 
 Concurrent exports of the same bundle are safe because each export rebuilds the
-folder, and the last writer records itself as the exporter — the content is
+folder, and the last writer records itself as the exporter. The content is
 identical either way.
 
 **Conflicting edits are refused, not merged.** If two people edit the same field,
@@ -223,7 +223,7 @@ the same approach wikis use.
 | `python pipeline.py create-user …` | add an account |
 
 Reaching colleagues in another building, or at home, needs a private network
-rather than a plain address — see [SETUP.md](SETUP.md#working-from-home).
+rather than a plain address. See [SETUP.md](SETUP.md#working-from-home).
 
 Build a bundle entirely from the command line:
 
@@ -240,30 +240,30 @@ duplicating: adding a document that is already present is a no-op.
 
 Written for someone who has never seen this pipeline:
 
-- **How this works** — a six-step guide at the top, plus a glossary of every term
-  (Library, Collection, Bundle, PDFs folder, Index sheet, Tag, OCR) and what each
-  status label means. Collapsible once you know it.
-- **Two tabs** — *Library* (everything the pipeline knows about) and *Collections*
-  (your bundles). Both show live counts.
-- **A Team tab** — who is signed in right now, every account, and a running feed
-  of what everyone has done ("Raj exported a bundle", "Jane created a collection").
-  Readable by every signed-in user, not just admins: on a shared pool, knowing who
-  is working on what is the difference between collaboration and collision.
+- **How this works**. a six-step guide at the top, plus a glossary of every term
+(Library, Collection, Bundle, PDFs folder, Index sheet, Tag, OCR) and what each
+status label means. Collapsible once you know it.
+- **Two tabs**. *Library* (everything the pipeline knows about) and *Collections*
+(your bundles). Both show live counts.
+- **A Team tab**. who is signed in right now, every account, and a running feed
+of what everyone has done ("Raj exported a bundle", "Jane created a collection").
+Readable by every signed-in user, not just admins: on a shared pool, knowing who
+is working on what is the difference between collaboration and collision.
 - **Tick → name → convert.** The black action bar appears as soon as you tick
-  anything, offering **Convert & export as bundle** or **Add to** an existing one.
+anything, offering **Convert & export as bundle** or **Add to** an existing one.
 - **In-page dialogs, not browser popups.** Creating, renaming and describing all
-  happen in a proper modal.
+happen in a proper modal.
 - **Reorder inside a collection** with ↑/↓, and rename a document *within that
-  bundle* without affecting any other bundle it appears in.
-- **Tags** — type `witness: M. Reed` under any document. Tags you add are yours
-  and are never overwritten when the pipeline re-reads the files.
+bundle* without affecting any other bundle it appears in.
+- **Tags**. type `witness: M. Reed` under any document. Tags you add are yours
+and are never overwritten when the pipeline re-reads the files.
 - **Exclusions are visible.** Documents that could not be converted appear under
-  **Not included** with the reason, in the console, the Word sheet, `index.csv`
-  and `manifest.json`. A gap you can see beats a silent omission.
+**Not included** with the reason, in the console, the Word sheet, `index.csv`
+and `manifest.json`. A gap you can see beats a silent omission.
 
 ---
 
-## OCR — reading scans, locally
+## OCR. reading scans, locally
 
 Scanned documents and phone photos have no text layer, so nothing can search
 them or work out their date. OCR fixes that.
@@ -274,13 +274,13 @@ calls and no API keys, so scanned client material never leaves the computer.
 ### Installing it
 
 ```bash
-winget install UB-Mannheim.TesseractOCR     # Windows
-sudo apt install tesseract-ocr              # Debian/Ubuntu
-brew install tesseract                      # macOS
+winget install UB-Mannheim.TesseractOCR # Windows
+sudo apt install tesseract-ocr # Debian/Ubuntu
+brew install tesseract # macOS
 ```
 
 The pipeline finds it even when the installer does not add it to `PATH`. With
-Tesseract absent, everything still runs — scans are exported as images, flagged
+Tesseract absent, everything still runs: scans are exported as images, flagged
 `OCR NEEDED`, and the pipeline tells you what to install.
 
 For French documents, install the extra language data and set it in
@@ -300,8 +300,8 @@ It runs automatically as step 4 of `python pipeline.py run`. To run it on its ow
 or re-read scans at full quality:
 
 ```bash
-python pipeline.py ocr              # read anything not yet read
-python pipeline.py ocr --force      # re-read everything, including what succeeded
+python pipeline.py ocr # read anything not yet read
+python pipeline.py ocr --force # re-read everything, including what succeeded
 python pipeline.py ocr --lang eng+fra --dpi 300 --max-pages 50
 ```
 
@@ -316,7 +316,7 @@ searchable copy to `work/ocr/`, used only for titles, dates and search. The PDFs
 folder in your bundle still contains the original scans.
 
 **OCR recovers metadata, not just text.** Once a scan can be read, its title,
-document type and date are filled in from the recognised text — so a scanned
+document type and date are filled in from the recognised text, so a scanned
 invoice stops being an undated blank in the index.
 
 ### What to expect
@@ -327,7 +327,7 @@ Measured on the sample documents:
 |---|---|
 | A clean 300 dpi scan | **96% confidence**, date and type recovered correctly |
 | A low-quality photo of a receipt | 64% confidence, key fields (date, total, receipt no.) still recovered and searchable |
-| A genuinely blank page | `no_text_found` — reported honestly, not invented |
+| A genuinely blank page | `no_text_found`. reported honestly, not invented |
 
 OCR is not perfect, and it depends on the source image. Before relying on a
 scanned document, open it and check the fields OCR filled in. The `OCR NEEDED`
@@ -357,18 +357,18 @@ correctly rejected so reference numbers never become dates.
 
 Two content-based passes:
 
-1. **Exact** — group by a fingerprint of the *extracted text*, falling back to a
-   byte hash when no text can be read. Fingerprinting text rather than bytes is
-   deliberate: the same letter re-saved by Word, or exported to PDF and then
-   photographed, is the same instrument, and a `foo.pdf` / `foo.docx` pair should
-   resolve to one document.
-2. **Near** — merge by similarity, requiring **both** character similarity
-   (`near_dup_threshold`, default 0.90) **and** significant-token overlap
-   (`near_dup_min_token_overlap`, default 0.85).
+1. **Exact**: group by a fingerprint of the *extracted text*, falling back to a
+byte hash when no text can be read. Fingerprinting text rather than bytes is
+deliberate: the same letter re-saved by Word, or exported to PDF and then
+photographed, is the same instrument, and a `foo.pdf` / `foo.docx` pair should
+resolve to one document.
+2. **Near**: merge by similarity, requiring **both** character similarity
+(`near_dup_threshold`, default 0.90) **and** significant-token overlap
+(`near_dup_min_token_overlap`, default 0.85).
 
 The token test is load-bearing. `difflib.quick_ratio()` compares character
 *multisets*, so two unrelated legal documents sharing ordinary vocabulary score
-near 1.0 — during development it merged a Statement of Claim into an engagement
+near 1.0. During development it merged a Statement of Claim into an engagement
 letter. Silently merging two different documents into one bundle entry is a
 correctness failure, not a cosmetic one.
 
@@ -411,11 +411,11 @@ Word output has **no** dependency: `docxwriter.py` uses only the standard librar
 ## Verification
 
 ```bash
-python collections_test.py   # tick -> name -> export, ordering, tags, HTTP surface
-python ocr_test.py           # engine detection, real OCR, searchability, date parsing
-python smoke_test.py         # console reads and writes, persistence, bad input
-python auth_test.py          # accounts, sessions, attribution, CSRF, audit
-python e2e_test.py           # the legacy affidavit-style export path
+python collections_test.py # tick -> name -> export, ordering, tags, HTTP surface
+python ocr_test.py # engine detection, real OCR, searchability, date parsing
+python smoke_test.py # console reads and writes, persistence, bad input
+python auth_test.py # accounts, sessions, attribution, CSRF, audit
+python e2e_test.py # the legacy affidavit-style export path
 ```
 
 All four pass. `collections_test.py` asserts, among other things, that
@@ -433,14 +433,14 @@ generation are entirely local.
 Sharing changes the threat model, so:
 
 - **Never expose the console without `--require-auth`.** The server warns loudly
-  if you bind to `0.0.0.0` without it.
+if you bind to `0.0.0.0` without it.
 - **Terminate TLS in front of it.** Run a reverse proxy (Caddy, nginx, IIS) with
-  a real certificate and use `--secure-cookie`.
-- **Prefer a private network** — a VPN or Tailscale — over a public port.
+a real certificate and use `--secure-cookie`.
+- **Prefer a private network**. a VPN or Tailscale. over a public port.
 - **Encrypt the disk** holding `intake/`, `work/` and `output/`, and back up
-  `work/pipeline.sqlite3` with the same care as the documents.
+`work/pipeline.sqlite3` with the same care as the documents.
 - **Get written direction** on where matter data may reside before hosting it
-  anywhere. The `Dockerfile` is for a private host, not a public one.
+anywhere. The `Dockerfile` is for a private host, not a public one.
 
 `intake/`, `work/`, `output/` and `affidavit.config.json` are git-ignored, so
 client material cannot leak into version control.
@@ -450,27 +450,27 @@ client material cannot leak into version control.
 ## Known limitations
 
 - **OCR accuracy depends on the scan.** A clean 300 dpi scan reads well; a poor
-  photo may misread words. Dates and totals are usually recovered; verify
-  anything that matters by opening the original.
+photo may misread words. Dates and totals are usually recovered; verify
+anything that matters by opening the original.
 - **OCR reads the first 25 pages by default** (`ocr_max_pages`). Long scanned
-  documents are partially read and the component says so.
+documents are partially read and the component says so.
 - **SQLite and a single write lock.** Fine for a handful of users. Past roughly
-  ten concurrent editors, move to Postgres.
+ten concurrent editors, move to Postgres.
 - **No cloud storage connector.** Files are read from `intake/source` only.
-  SharePoint/Drive ingestion is not implemented.
+SharePoint/Drive ingestion is not implemented.
 - **Zibbit is not called.** It is a Word add-in with no API; this pipeline's job
-  ends at producing the PDFs it consumes.
+ends at producing the PDFs it consumes.
 - **No drag-and-drop reordering.** Order is set by add-order plus the ↑/↓ buttons.
 - **Near-duplicate detection is O(n²)** against cluster representatives. Fine for
-  hundreds of documents; needs MinHash/LSH beyond a few thousand.
+hundreds of documents; needs MinHash/LSH beyond a few thousand.
 - **Date parsing is heuristic.** Ambiguous `03/04/2024` is read day-first per
-  Canadian practice. Verify anything that matters.
+Canadian practice. Verify anything that matters.
 
 ### Legacy code
 
 An earlier iteration targeted a formal *Affidavit of Documents* with fixed
-Schedule A/B/C classification. That model was wrong for this use case — the
-taxonomy is the user's, not the court's — and the console no longer uses it.
+Schedule A/B/C classification. That model was wrong for this use case: the
+taxonomy is the user's, not the court's, and the console no longer uses it.
 
 `assemble.py` and `python pipeline.py assemble` remain, and are covered by
 `e2e_test.py`, but they are a separate export shape rather than the main path.
@@ -483,12 +483,12 @@ They can be deleted once the collection workflow is settled.
 An MCP server driving a hosted model has two problems here:
 
 1. **Confidentiality.** Converting through a model API means client material
-   transits a third party. That is a professional responsibility question before
-   it is a technical one.
+transits a third party. That is a professional responsibility question before
+it is a technical one.
 2. **Determinism.** The same inputs must produce the same bundle, with a
-   traceable reason for every placement. Deterministic conversion and
-   reconciliation give that; a conversational agent does not.
+traceable reason for every placement. Deterministic conversion and
+reconciliation give that; a conversational agent does not.
 
 The narrow place a model genuinely helps is *suggesting a document type* or
-*drafting an index description* — both cosmetic, both reversible by a human.
+*drafting an index description*. both cosmetic, both reversible by a human.
 Conversion, naming, filing and numbering should stay deterministic.
