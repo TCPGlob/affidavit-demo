@@ -897,7 +897,10 @@ function renderSync() {
             <button class="btn sec" onclick="openChangeFolder()">Use a shared folder</button>
           </div>
           <div style="margin-top:8px">
-            <button class="btn sec" onclick="clearLibrary()">Clear everything and start again</button>
+            <button class="btn sec" onclick="clearLibrary()">Clear everything</button>
+          </div>
+          <div style="margin-top:8px">
+            <button class="btn sec" onclick="restoreSamples()">Put the samples back</button>
           </div>
         </div>
       </div>
@@ -1124,22 +1127,39 @@ async function doSetFolder() {
 
 async function clearLibrary() {
   const chosen = await confirmChoice(
-    'Start again with a blank slate?',
+    'Clear everything?',
     'The Library is emptied, the collections and the record of what has been ' +
-    'processed are cleared, and the sample documents are put back so you have ' +
-    'something to work with. Documents you have dropped into the folder are ' +
-    'picked up again within a few seconds.',
-    'Clear everything and start again');
+    'processed are cleared, and the copies in intake/source are deleted. ' +
+    'Documents you have dropped into the folder are picked up again within a few ' +
+    'seconds, so anything you want to keep should be in the drop folder.',
+    'Clear everything');
   if (!chosen) return;
   const out = await post('api/library/reset', {clear_samples: true});
   if (out && out.ok) {
-    toast(out.rebuilt
-      ? 'Cleared. The sample documents have been put back.'
-      : 'Cleared. Drop your documents in and they will appear.');
+    toast('Cleared. The Library is empty and ready for your own documents.');
     await refreshAll();
     await loadSync();
   } else {
     toast('Could not clear the library');
+  }
+}
+
+async function restoreSamples() {
+  const chosen = await confirmChoice(
+    'Put the sample documents back?',
+    'This empties the Library and replaces it with the sample documents the ' +
+    'first run creates, so there is something to look at and practise on.',
+    'Put the samples back');
+  if (!chosen) return;
+  const out = await post('api/library/reset',
+                         {clear_samples: true, restore_samples: true});
+  if (out && out.ok) {
+    toast(out.rebuilt ? 'The sample documents are back.'
+                      : 'Cleared, but the samples could not be created.');
+    await refreshAll();
+    await loadSync();
+  } else {
+    toast('Could not restore the samples');
   }
 }
 
@@ -1340,7 +1360,13 @@ function renderLibrary() {
         : '&mdash;'}</td>
     </tr>`;
   }).join('') || `<tr><td colspan="9" class="empty">
-      Nothing matches. ${f !== 'all' ? 'Try &ldquo;All documents&rdquo;.' : 'Copy files into the drop folder and they will appear here.'}
+      ${f !== 'all'
+        ? 'Nothing matches that filter. Try &ldquo;All documents&rdquo;.'
+        : `The Library is empty. Copy your documents into the drop folder
+           (<b>${esc(SYNC && SYNC.status ? SYNC.status.watch_dir : 'intake/incoming')}</b>)
+           and they appear here on their own, usually within a few seconds.
+           <br><br>Want something to practise on instead?
+           <a href="#" onclick="restoreSamples();return false">Put the sample documents back</a>.`}
     </td></tr>`;
 
   // Header summary. Named differently from `total` above, which is the filtered

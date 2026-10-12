@@ -559,19 +559,21 @@ def _make_handler(conn, cfg: Config, require_auth: bool = False,
             forgot = watcher_mod.forget_tracked_files()
             result["watcher_notified"] = forgot
 
-            # A blank slate with nothing in it looks broken, so put the sample
-            # documents back and process them. That is the state a first run
-            # leaves you in, which is a state somebody can work from.
+            # Blank slate means blank. Files already in the drop folder are taken
+            # again by the watcher within a few seconds, so the Library fills up
+            # with whatever the user actually wants rather than with samples they
+            # have just asked to be rid of.
             result["rebuilt"] = False
-            try:
-                from . import fixtures, pipeline as pipeline_mod
+            if body.get("restore_samples"):
+                try:
+                    from . import fixtures, pipeline as pipeline_mod
 
-                if not any(ctx.cfg.source_dir.iterdir()):
-                    fixtures.generate(ctx.cfg.source_dir, clean=True)
-                    pipeline_mod.run(c, ctx.cfg, fresh=False, skip_ingest=False)
-                    result["rebuilt"] = True
-            except Exception as exc:  # noqa: BLE001 - the reset itself succeeded
-                result["rebuild_error"] = str(exc)
+                    if not any(ctx.cfg.source_dir.iterdir()):
+                        fixtures.generate(ctx.cfg.source_dir, clean=True)
+                        pipeline_mod.run(c, ctx.cfg, fresh=False, skip_ingest=False)
+                        result["rebuilt"] = True
+                except Exception as exc:  # noqa: BLE001 - the reset itself succeeded
+                    result["rebuild_error"] = str(exc)
 
             auth.audit(c, actor, None, "library_reset",
                        f"clear_samples={include_source} removed={result['removed']} "

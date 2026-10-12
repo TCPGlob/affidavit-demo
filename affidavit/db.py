@@ -603,8 +603,13 @@ def all_tags(conn: sqlite3.Connection) -> dict[int, dict[str, str]]:
 
 
 def reset(conn: sqlite3.Connection) -> None:
-    """Drop and recreate everything. Used by --fresh."""
-    for t in ("decisions", "source_files", "documents"):
+    """Drop and recreate everything. Used by --fresh and by clearing the library.
+
+    The order matters: rows that point at a collection or a document have to go
+    with them, or a cleared library would still list bundles full of nothing.
+    """
+    for t in ("collection_items", "collections", "decisions", "source_files",
+              "documents"):
         conn.execute(f"DROP TABLE IF EXISTS {t}")
     conn.commit()
     init(conn)
