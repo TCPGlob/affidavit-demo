@@ -180,6 +180,7 @@
           <select id="filter" style="width:auto;display:inline-block;margin-left:5px">
             <option value="all">All documents</option>
             <option value="notpdf">Not yet PDF</option>
+            <option value="verify">Scans to check by eye</option>
             <option value="ocr">Scans needing OCR</option>
             <option value="tagged">Tagged</option>
           </select>
@@ -198,6 +199,7 @@
           <th style="width:9%">Type</th>
           <th style="width:9%">Date</th>
           <th style="width:6%">Pages</th>
+          <th style="width:9%">Text quality</th>
           <th style="width:11%">Status</th>
           <th style="width:17%">Tags <span class="sub">(yours)</span></th>
           <th style="width:18%">In collections</th>
@@ -704,12 +706,29 @@ function collectionsFor(docId) {
   return COLLECTIONS.filter(c => (c.doc_ids || []).includes(docId));
 }
 
+/* Colour-coded OCR quality, so "how much can I trust this scan?" is a glance
+   rather than a number to interpret. */
+function qualityCell(d) {
+  const q = d.ocr_quality || 'text';
+  if (q === 'text') return '<span class="sub">text</span>';
+  const tone = { good: 'p-ok', fair: 'p-ocr', poor: 'p-no',
+                 none: 'p-no', failed: 'p-no', unread: 'p-emp',
+                 known: 'p-emp' }[q] || 'p-emp';
+  const label = d.ocr_quality_label || q;
+  const advice = d.ocr_quality_advice || '';
+  const word = { good: 'good', fair: 'check', poor: 'verify',
+                 none: 'no text', failed: 'failed', unread: 'not read' }[q] || label;
+  return `<span class="pill ${tone}" title="${esc(advice || label)}">${esc(word)}${
+    q === 'good' || q === 'fair' || q === 'poor' ? ` ${esc(label)}` : ''}</span>`;
+}
+
 function renderLibrary() {
   const f = document.getElementById('filter').value;
   const q = (document.getElementById('search').value || '').toLowerCase().trim();
   let list = DOCS;
   if (f === 'notpdf') list = list.filter(d => d.pdf_status !== 'ok' && d.pdf_status !== 'passthrough');
   if (f === 'ocr')    list = list.filter(d => d.needs_ocr);
+  if (f === 'verify') list = list.filter(d => d.needs_verification);
   if (f === 'tagged') list = list.filter(d => Object.keys(d.tags || {}).length);
   if (q) {
     list = list.filter(d => [d.title_guess, d.doc_type, d.doc_date, d.canonical_src,
@@ -736,6 +755,7 @@ function renderLibrary() {
       <td class="meta">${esc(d.doc_type)}</td>
       <td class="meta">${d.doc_date ? esc(d.doc_date) : '&mdash;'}</td>
       <td class="meta">${d.page_count ?? '?'}</td>
+      <td>${qualityCell(d)}</td>
       <td class="meta">${conv ? 'needs converting' : 'PDF ready'}</td>
       <td>
         ${tags.map(([k, v]) => `<span class="tagchip">${esc(k)}: ${esc(v)}</span>`).join('') || '<span class="meta">&mdash;</span>'}

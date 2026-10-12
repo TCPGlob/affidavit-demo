@@ -23,16 +23,68 @@ def sanitize(s: str, fallback: str = "document") -> str:
 
 
 def build_filename(cfg: Config, doc_row, seq: int = 0) -> str:
-    date = doc_row["doc_date"] or "undated"
-    doctype = sanitize(doc_row["doc_type"] or "Document").lower()
+    """A readable name for a normalised PDF.
+
+    Falls back to the hash only when nothing else is known, so a document with
+    no title and no date is still uniquely identifiable.
+    """
+    date = doc_row["doc_date"] or ""
+    doctype = sanitize(doc_row["doc_type"] or "", "").lower()
+    title = sanitize(doc_row["title_guess"] or "", "")
     h8 = (doc_row["sha256"] or "")[:8]
+
+    if not title:
+        # Nothing extracted yet; fall back to the original file name, which is
+        # nearly always more meaningful than a hash.
+        title = sanitize(Path(doc_row["canonical_src"] or "").stem, "")
+
     try:
         stem = cfg.filename_template.format(
-            date=date, doctype=doctype, hash8=h8, seq=f"{seq:04d}"
+            date=date or "undated",
+            doctype=doctype or "document",
+            title=title or f"doc-{h8}",
+            hash8=h8,
+            seq=f"{seq:04d}",
         )
     except (KeyError, IndexError):
-        stem = f"{date}_{doctype}_{h8}"
-    return f"{sanitize(stem, 'document')}.pdf"
+        stem = f"{date or 'undated'}_{doctype or 'document'}_{title or h8}"
+
+    return f"{sanitize(stem, f'document-{h8}')}.pdf"
+
+
+def rename_normalized(conn, cfg: Config, doc_row) -> str | None:
+    """Give a normalised PDF its proper name, once metadata is known.
+
+    Conversion happens before extraction, so at conversion time the date and
+    title are usually unknown and every file ends up called
+    'undated_document_<hash>.pdf'. This renames it afterwards, when the real
+    metadata exists. Returns the new name, or None if nothing changed.
+    """
+    current = doc_row["pdf_path"]
+    if not current:
+        return None
+    old = Path(current)
+    if not old.exists():
+        return None
+
+    desired = cfg.normalized_dir / build_filename(cfg, doc_row)
+    if desired.name == old.name:
+        return None
+
+    target = desired
+    n = 2
+    while target.exists() and target != old:
+        target = desired.with_name(f"{desired.stem} ({n}){desired.suffix}")
+        n += 1
+
+    try:
+        old.rename(target)
+    except OSError:
+        return None
+
+    conn.execute("UPDATE documents SET pdf_path=? WHERE id=?", (str(target), doc_row["id"]))
+    conn.commit()
+    return target.name
 
 
 def parties_from_config(cfg: Config) -> list[str]:
@@ -197,6 +249,15 @@ def run(conn, cfg: Config, fresh: bool = False, skip_ingest: bool = False,
     print(f"          {len(rows)} documents profiled")
     if ocr_needed:
         print(f"          {ocr_needed} image-only scan(s) require OCR")
+
+    # Give the normalised files their proper names now that dates and titles
+    # are known. At conversion time they were all 'undated_document_<hash>.pdf'.
+    renamed = 0
+    for row in conn.execute("SELECT * FROM documents WHERE pdf_path IS NOT NULL"):
+        if rename_normalized(conn, cfg, row):
+            renamed += 1
+    if renamed:
+        print(f"          {renamed} file(s) named from their contents")
     print()
 
     # ---------------------------------------------------------- 4. OCR
@@ -325,6 +386,14 @@ def run_ocr_stage(conn, cfg: Config, tools: dict, force: bool = False) -> dict:
                  ex.text_fingerprint, row["id"]),
             )
             conn.commit()
+
+            # OCR has just learned the title and date, so the normalised file
+            # can finally be given a meaningful name.
+            refreshed = conn.execute("SELECT * FROM documents WHERE id=?",
+                                     (row["id"],)).fetchone()
+            new_name = rename_normalized(conn, cfg, refreshed) if refreshed else None
+            if new_name:
+                print(f"                       renamed to {new_name}")
 
     print(f"          read {stats['succeeded']}/{stats['processed']} "
           f"({stats['chars']:,} characters recovered)")

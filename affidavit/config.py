@@ -32,8 +32,9 @@ class Config:
     jurisdiction_rules: str = "Rules of Civil Procedure, R.R.O. 1990, Reg. 194, Rule 30.03"
 
     # --- Naming convention for normalised files ---
-    # Rendered with {date} {doctype} {hash8} {seq}
-    filename_template: str = "{date}_{doctype}_{hash8}"
+    # Rendered with {date} {doctype} {title} {hash8} {seq}. Plain text, so it
+    # can be changed to taste; see build_filename() in pipeline.py.
+    filename_template: str = "{date}_{doctype}_{title}"
 
     # --- Near-duplicate detection ---
     # Two documents are treated as the same instrument when BOTH the character

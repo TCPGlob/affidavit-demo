@@ -61,6 +61,7 @@ def fetch_documents(conn) -> list[dict]:
         SELECT d.id, d.title_guess, d.canonical_src, d.doc_type, d.doc_date,
                d.date_source, d.page_count, d.pdf_status, d.status_detail,
                d.summary, d.privilege_flags, d.needs_ocr,
+               d.ocr_status, d.ocr_confidence, d.ocr_chars,
                (SELECT COUNT(*) FROM source_files s WHERE s.doc_id = d.id) AS dup_count,
                COALESCE(dec.schedule, '')          AS schedule,
                COALESCE(dec.privilege_ground, '')  AS privilege_ground,
@@ -97,8 +98,51 @@ def fetch_documents(conn) -> list[dict]:
         item["collections"] = cols
         item["collection_ids"] = [c["id"] for c in cols]
         item["collection_names"] = [c["name"] for c in cols]
+        item.update(_ocr_quality(item))
         out.append(item)
     return out
+
+
+# Below this mean confidence, a scan's text is unreliable enough that a person
+# should check it against the image before trusting a date or a total.
+OCR_VERIFY_THRESHOLD = 80.0
+
+
+def _ocr_quality(item: dict) -> dict:
+    """Turn a stored OCR confidence into something a reviewer can act on."""
+    status = item.get("ocr_status")
+    conf = item.get("ocr_confidence")
+
+    if status == "ok" and conf is not None:
+        if conf >= OCR_VERIFY_THRESHOLD:
+            level, label = "good", f"{conf:.0f}%"
+            advice = ""
+        elif conf >= 65:
+            level, label = "fair", f"{conf:.0f}%"
+            advice = "Read roughly - check dates and figures against the scan."
+        else:
+            level, label = "poor", f"{conf:.0f}%"
+            advice = "Read poorly - check this document by eye before relying on it."
+        return {"ocr_quality": level, "ocr_quality_label": label,
+                "ocr_quality_advice": advice, "needs_verification": level != "good"}
+
+    if status == "no_text_found":
+        return {"ocr_quality": "none", "ocr_quality_label": "no text",
+                "ocr_quality_advice": "Nothing readable was found. Check the image.",
+                "needs_verification": True}
+    if status in ("failed", "unavailable"):
+        return {"ocr_quality": "failed", "ocr_quality_label": "failed",
+                "ocr_quality_advice": "Reading this scan did not succeed.",
+                "needs_verification": True}
+    if status is None and item.get("needs_ocr"):
+        return {"ocr_quality": "unread", "ocr_quality_label": "not read",
+                "ocr_quality_advice": "This scan has not been read yet.",
+                "needs_verification": True}
+    if status is None:
+        return {"ocr_quality": "text", "ocr_quality_label": "text",
+                "ocr_quality_advice": "", "needs_verification": False}
+    return {"ocr_quality": "known", "ocr_quality_label": str(status),
+            "ocr_quality_advice": "", "needs_verification": False}
 
 
 # ---------------------------------------------------------------- handler
