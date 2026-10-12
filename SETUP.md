@@ -59,6 +59,92 @@ re-enable them later.
 Everything above is also possible from the command line (`python pipeline.py
 create-user …`) if you prefer, but nothing requires it.
 
+## The whole team at once: what to expect
+
+This is the arrangement a firm ends up with, and it works out of the box:
+
+```
+        one always-on computer                everybody else
+   ┌──────────────────────────────┐
+   │  the app, running --users    │◀──── Tailscale ────  home, another office
+   │  the shared drop folder      │◀──── same wifi ────  the next desk
+   │  Tailscale installed         │
+   └──────────────────────────────┘
+```
+
+### What each person needs
+
+| | |
+|---|---|
+| An account | Created by an administrator on the **Team** tab |
+| A role | **Reviewer** to do the work, **Administrator** also to manage people |
+| The address | Sent once. Nothing to install except Tailscale |
+| A browser | Any current one |
+
+### The setup order that avoids trouble
+
+1. **On the always-on machine**, install Python, LibreOffice and Tesseract, then
+   copy the project folder somewhere sensible.
+2. **Start it once with `start-windows.bat` and create the administrator account
+   immediately.** Whoever opens the Welcome page first becomes the administrator,
+   so do this before anyone else can reach the machine.
+3. **Set the shared folder** from the console: drop folder panel, **Use a shared
+   folder**. Point it at the folder everyone will drop into.
+4. **Add everyone** on the Team tab.
+5. **Install Tailscale** on that machine and on every colleague's machine, signed
+   in to the same account.
+6. **Double-click `share-windows.bat`** and send everyone the address labelled
+   **works anywhere**.
+
+### Day to day
+
+- The always-on machine must be **on**, with the app **running**. Everything else
+  is ordinary browser use.
+- Somebody drops a document in the shared folder. It appears in everyone's
+  Library within seconds, whoever dropped it.
+- Anyone can start a collection, add to it, reorder it and export it.
+- **Exported bundles** remain findable by everyone after they leave the working
+  list.
+
+### When two people touch the same thing
+
+Nothing is silently overwritten. Each bundle carries a version, and a save made
+against an old version is **refused**, with the current value shown so the person
+can decide. Adding documents is safe to do at the same time from two computers:
+adding the same document twice does nothing.
+
+So the worst case is one person being asked to look again. That is the point.
+
+### Dividing work so it does not come up
+
+- Give each person **their own collection** for the part they are assembling,
+  then combine. Conflicts only arise when two people edit the *same* bundle.
+- Use **tags** to mark progress or ownership. Tags you add are never overwritten,
+  even when the pipeline re-reads the documents.
+- Export when a bundle is finished, which keeps the console showing live work.
+
+### Before you rely on it: the checks worth running
+
+- Everyone signs in and sees the same Library
+- Two people each add a document at the same time, with no duplicate
+- Two people edit one bundle's description at the same time, and one is told
+  there is a conflict
+- Somebody at home drops a file in, and it appears for everyone else
+- Export a bundle, then confirm everyone finds it under **Exported bundles**
+
+### Rough limit
+
+Comfortable for about **ten people working at once**. Beyond that the database
+wants changing to something built for more writers. For a firm-sized matter this
+is not a constraint.
+
+### Backups
+
+Back up the **`work` folder** and the **`intake` folder** together. `work`
+contains the record of what has been processed, the review decisions and the
+account list; `intake` contains the documents. `output` can be rebuilt from a
+collection whenever you need it.
+
 ## Letting colleagues on other computers reach it
 
 By default the app is reachable **only from the computer it runs on**. That is the
@@ -111,15 +197,18 @@ router and nothing exposed to the internet.**
 
 1. Install Tailscale on the computer that will run the app, and sign in.
 2. Install it on each colleague's computer, and sign in with the same account.
-3. Run `python pipeline.py share` on the host.
+3. Run `python pipeline.py share` on the host, or double-click
+   `share-windows.bat`.
 
 Addresses beginning `100.` in the output are the Tailscale ones and **work from
 anywhere**. Give colleagues that address instead of the office one:
 
 ```
-Tailscale (works anywhere) http://100.101.102.103:8765/
-Same office / same wifi http://10.33.38.26:8765/
+Tailscale (works anywhere) http://100.70.246.36:8765/
+Same office / same wifi    http://192.168.146.58:8765/
 ```
+
+The Tailscale address is listed first, so the one to send is the one at the top.
 
 That is the whole setup. The documents never touch the public internet; Tailscale
 carries the traffic directly between your computers, encrypted.
@@ -127,8 +216,44 @@ carries the traffic directly between your computers, encrypted.
 > **WireGuard** is already installed on some machines and does the same job, but
 > it requires someone to configure a server and hand out keys. Tailscale is the
 > same technology with the setup done for you. If your IT already runs a
-> WireGuard or OpenVPN server, use that instead. connect first, then use the
+> WireGuard or OpenVPN server, use that instead. Connect first, then use the
 > address `share` prints.
+
+### Do not use `--secure-cookie` with Tailscale
+
+`--secure-cookie` tells the browser to send the sign-in cookie **only over
+HTTPS**. Tailscale gives you a private encrypted network but a plain `http://`
+address, so with that flag set the cookie is never sent and **nobody can sign
+in**. If the address is `http://`, leave that flag alone.
+
+### Never forward a port from the internet
+
+Not instead of Tailscale, and not as well as. The app speaks plain HTTP, so
+passwords would cross the public internet unprotected, and its built-in server is
+not built to be the thing the public internet talks to. That is exactly the
+problem Tailscale removes.
+
+### What was actually tested
+
+Verified over a real Tailscale address with three people signed in at once, two
+of them reaching the app through the Tailscale address:
+
+| Checked | Result |
+|---|---|
+| Each person signs in and gets their own session | passed |
+| A made-up session token is refused | passed |
+| All three see the same shared folder and library | passed |
+| Five documents dropped by three people at once | all ingested |
+| Two people editing one bundle | one saved, the other told of the conflict |
+| Two people adding documents at once | no duplicates |
+| One exports, all three see it under exported bundles | passed |
+| A write from a foreign website | refused |
+| Dropped files still in the shared folder, unmodified | passed |
+| Signing out on one computer | other two unaffected |
+
+**Not proven by this:** that your particular network routes correctly, or that a
+machine far away feels quick. Reachability is Tailscale's job rather than this
+program's.
 
 ## The better answer for a real firm: a machine of their own
 

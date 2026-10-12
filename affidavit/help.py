@@ -561,6 +561,84 @@ is the question that matters.
 """,
     },
     {
+        "id": "team",
+        "title": "Working as a team, from anywhere",
+        "body": """
+## One shared folder
+
+If everyone drops documents into one place, point the watcher at it. On the drop
+folder panel use **Use a shared folder**, then **Browse...** or type the path.
+
+- **On this computer**: `D:\\Shared documents`
+- **On the network**: `\\\\server\\share\\documents`, or a mapped drive such as `Z:\\Scans`
+- **A synced service**: the local folder it syncs to, such as
+  `C:\\Users\\you\\OneDrive - Firm\\Intake`
+
+Sub-folders are watched too. Files are copied, never moved, so the shared folder
+is left exactly as it was.
+
+## The central machine
+
+For a team, the weak point is running this on somebody's laptop: close the lid and
+it stops for everyone. Put it on a desktop that stays on.
+
+1. Install Python, LibreOffice and Tesseract on that machine.
+2. Start it once and **create the administrator account straight away**, because
+   whoever opens the Welcome page first becomes the administrator.
+3. Set the shared folder from the drop folder panel.
+4. Add everyone on the **Team** tab.
+5. Install Tailscale on that machine and on every colleague's computer, signed in
+   to the same account, then run `share-windows.bat`.
+
+## Reaching it from another place
+
+Tailscale builds a private encrypted network between your machines, so no port
+needs opening on your router and nothing is exposed to the internet.
+
+Install it on the machine running the app and on each person's computer, signed
+in to the same account. Then `share-windows.bat` prints two addresses:
+
+```
+Tailscale (works anywhere) http://100.70.246.36:8765/
+Same office / same wifi    http://192.168.146.58:8765/
+```
+
+**Send the one labelled "works anywhere".** It begins `100.` and works from any
+location. The other only works inside the building.
+
+> **Do not use `--secure-cookie` with Tailscale.** That flag sends the sign-in
+> cookie only over HTTPS, and Tailscale gives you a plain `http://` address, so
+> nobody would be able to sign in.
+
+> **Never forward a port from the internet to this app.** It speaks plain HTTP, so
+> passwords would cross the internet unprotected.
+
+## Several people at once
+
+Everything is shared: one Library, one set of collections, one activity record.
+Everyone signed in sees the same thing, and each person has their own session, so
+signing out on one computer does not affect anybody else.
+
+**When two people touch the same bundle**, the one whose save is based on an
+older version is refused and shown the current value, so they can decide what to
+keep. Nothing is overwritten without agreement. Adding documents at the same time
+is safe: adding the same one twice does nothing.
+
+To avoid it entirely, give each person their own collection for their part and
+combine later. Use tags to mark progress, since tags you add are never
+overwritten.
+
+Comfortable for about **ten people working at once**. Beyond that the database
+wants changing to something built for more writers.
+
+## Backups
+
+Back up **`work`** and **`intake`** together. `work` holds the record of what has
+been processed, the review decisions and the account list; `intake` holds the
+documents. `output` can be rebuilt from a collection whenever you need it.
+""",
+    },
+    {
         "id": "limits",
         "title": "What this program will not do",
         "body": """

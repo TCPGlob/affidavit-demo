@@ -137,6 +137,156 @@ and point it at the shared folder. Then nobody has to think about it.
 
 ---
 
+## Several people working at once
+
+Everything is shared. There is one Library, one set of collections and one
+activity record, and everyone signed in sees the same thing.
+
+### What each person needs
+
+| | |
+|---|---|
+| Their own account | Created by an administrator on the **Team** tab |
+| A role | **Reviewer** to do the work, **Administrator** also to manage people |
+| The address | Sent to them once. Nothing to install |
+| A browser | Any current one |
+
+Each person gets their **own session**, so signing out on one computer does not
+affect anybody else, and nobody can act as somebody else.
+
+### Two people editing the same bundle
+
+This is handled, and the handling is worth knowing because it is deliberate.
+
+Each bundle carries a version number. When you save, the app checks that the
+version you were looking at is still the current one:
+
+- **If nobody else has changed it**, your change is saved.
+- **If somebody has**, your save is refused and you are shown the current value,
+  so you can decide what to keep. Nothing is overwritten without you agreeing.
+
+So the worst that happens is that one person is asked to look again. The thing
+that must never happen, two people silently overwriting each other, cannot.
+
+Adding documents is safe to do at the same time from two computers. Adding the
+same document twice is a no-op, so two people tidying the same bundle cannot
+create duplicates.
+
+### What everyone can see
+
+- The **Library**, which is the same for the whole team
+- Every **collection**, including who started it and who last exported it
+- The **Team** tab, showing who is signed in and a live activity feed
+- **Exported bundles**, so a bundle that has left the working list can still be
+  found
+
+### A sensible way to divide work
+
+- Give each person their own collection for the part they are assembling, then
+  combine. Version conflicts only arise when two people edit the *same* bundle.
+- Use **tags** to mark progress or ownership. Tags you add are never overwritten,
+  even when the pipeline re-reads the documents.
+- Export when a bundle is finished. It leaves the working list, which keeps the
+  console showing live work only.
+
+### Rough limits
+
+The design is comfortable for a team of about **ten people working at once**.
+Beyond that the database wants changing to something built for more writers.
+For a firm-sized matter this is not a constraint.
+
+---
+
+## Working from anywhere: Tailscale
+
+You do not need to open a port on your router, and you should not. Tailscale
+builds a private encrypted network between your machines, so the central machine
+can be reached from a home office or another city as though it were on the same
+desk.
+
+### Setting it up
+
+On the **machine that runs the app**:
+
+1. Install Tailscale: `winget install Tailscale.Tailscale`
+2. Sign in. Use the same account you will use on the other machines, because
+   only machines on your own network can reach each other.
+
+On **each person's computer**:
+
+3. Install Tailscale from https://tailscale.com and sign in to that same account.
+
+Then, on the machine that runs the app, double-click **`share-windows.bat`**. It
+prints the address to give people:
+
+```
+  Tailscale (works anywhere) http://100.70.246.36:8765/
+  Same office / same wifi    http://192.168.146.58:8765/
+```
+
+**Give them the one labelled "works anywhere".** It starts with `100.`, which is
+the Tailscale address, and it works from any location.
+
+You can also run it by hand:
+
+```
+python pipeline.py share
+python pipeline.py review --users --host 0.0.0.0
+```
+
+### Using it day to day
+
+The machine that runs the app must be **on** and the app must be **running**.
+Everything else is ordinary browser use.
+
+- People open the `100.` address and sign in.
+- Documents they drop into the shared folder are picked up on the central
+  machine, whoever dropped them.
+- Bundles are shared in the ordinary way.
+
+### Things to get right
+
+**Do not use `--secure-cookie`.** That flag tells the browser to only send the
+sign-in cookie over HTTPS. Tailscale gives you a private encrypted network but a
+plain `http://` address, so with that flag set **nobody could sign in**. The
+console says HTTPS if it means HTTPS, and with Tailscale it does not.
+
+**Never forward a port from the internet to this program.** It speaks plain HTTP,
+so passwords would cross the internet unprotected. Tailscale exists to avoid
+needing that.
+
+**Use a machine that stays on.** If it is a laptop that gets closed, the app
+stops and nobody can reach it. A desktop in the office is the right place.
+
+**Sign-in must be on.** Always run with accounts when more than one person can
+reach the address, which `share-windows.bat` and `start-windows.bat` both do.
+Without it, anyone who can reach the address can read every document.
+
+### What has been verified
+
+Tested over a real Tailscale address with three people signed in at once as
+separate sessions, one of them on the machine itself and two reaching it through
+the Tailscale address:
+
+- all three signed in and received their own session
+- a made-up session token was refused
+- all three saw the same shared folder and the same library
+- five documents copied in by three people at the same time were all ingested
+- two people editing one bundle: one saved, the other was told there was a
+  conflict and shown the current value
+- two people adding documents at the same time created no duplicates
+- one person exported; all three then found the bundle under exported bundles
+  and no longer in progress
+- a write from a foreign website was refused
+- every dropped file was still in the shared folder, unmodified
+- signing out on one computer did not affect the other two
+
+**What this does not prove:** that your particular network routes correctly, or
+that a machine three thousand miles away feels quick. Reachability depends on
+Tailscale, which is their job rather than this program's.
+
+---
+
 ## The Library
 
 Every document the program knows about. This is where you tick the ones you want
